@@ -215,5 +215,4 @@ with st.expander("🧪 Specialist tools — development test"):
     geogebra_panel()
 
 st.divider()
-st.caption("Road-test V2 development build. Production layers still include login, subscriptions/M-Pesa, usage metering, curriculum retrieval, OCR, automatic graph/diagram generation, database and multi-user security.")
-    
+st.caption("Road-test V3(1) — specialist-tool routing build. Production layers still include login, subscriptions/M-Pesa, usage metering, curriculum retrieval, OCR, database and multi-user security.")
