@@ -2,3 +2,4 @@ streamlit
 openai
 pypdf
 PyMuPDF>=1.24.0
+
