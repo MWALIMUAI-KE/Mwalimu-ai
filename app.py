@@ -5,7 +5,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from pypdf import PdfReader
 from openai import OpenAI
-
+from vision_processor import VisionProcessor
 st.set_page_config(page_title="Mwalimu AI", page_icon="🤖", layout="wide")
 st.title("🤖 Mwalimu AI")
 st.caption("Teacher AI assistant — targeted road-test upgrade")
