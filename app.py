@@ -199,34 +199,35 @@ if uploaded:
     is_text_pdf = vision_processor.is_probably_text_pdf(
         uploaded.getvalue()
     )
+if not is_text_pdf:
+    st.info(
+        "Scanned/image-based paper detected. "
+        "Mwalimu AI is switching to visual processing."
+    )
 
-    if not is_text_pdf:
-        st.info(
-            "Scanned/image-based paper detected. "
-            "Mwalimu AI is switching to visual processing."
-        )
-            visual_document = vision_processor.process_pdf(
-    uploaded.getvalue(),
-    source_name=uploaded.name
-)
+    visual_document = vision_processor.process_pdf(
+        uploaded.getvalue(),
+        source_name=uploaded.name
+    )
 
-visual_document = vision_processor.analyze_document(
-    visual_document
-)
+    visual_document = vision_processor.analyze_document(
+        visual_document
+    )
 
-visual_text_parts = []
+    visual_text_parts = []
 
-for page in visual_document.pages:
-    if page.vision_analysis:
-        visual_text_parts.append(
-            f"\n--- PAGE {page.page_number} ---\n"
-            f"{page.vision_analysis}"
-        )
+    for page in visual_document.pages:
+        if page.vision_analysis:
+            visual_text_parts.append(
+                f"\n--- PAGE {page.page_number} ---\n"
+                f"{page.vision_analysis}"
+            )
 
-text = "\n".join(visual_text_parts).strip()
-                
+    text = "\n".join(visual_text_parts).strip()
 
-                scheme = generate_marking_scheme(text, subject, level)
+scheme = generate_marking_scheme(text, subject, level)
+    
+    
 
                 st.subheader("Generated Marking Scheme")
                 show_math_rendered(scheme)
