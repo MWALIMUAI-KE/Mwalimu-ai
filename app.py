@@ -16,7 +16,9 @@ if not api_key:
     st.stop()
 
 client = OpenAI(api_key=api_key)
-
+vision_processor = VisionProcessor(
+    openai_client=client
+)
 def extract_pdf(uploaded_file):
     reader = PdfReader(io.BytesIO(uploaded_file.read()))
     pages = []
