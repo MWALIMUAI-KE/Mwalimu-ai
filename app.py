@@ -223,9 +223,11 @@ if not is_text_pdf:
                 f"{page.vision_analysis}"
             )
 
-    text = "\n".join(visual_text_parts).strip()    text = "\n".join(visual_text_parts).strip()
+    text = 
+    "\n".join(visual_text_parts).strip()    text = "\n".join(visual_text_parts).strip()
 
-scheme = generate_marking_scheme(text, subject, level)
+scheme = 
+generate_marking_scheme(text, subject, level)
     
     
 
