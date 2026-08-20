@@ -193,8 +193,18 @@ if uploaded:
     if st.button("🚀 Generate Marking Scheme", type="primary"):
         with st.spinner("Mwalimu AI is analysing the paper..."):
             try:
-                is_text_pdf = vision_processor.is_probably_text_pdf(
-    uploaded_file.getvalue()
+                try:
+    text = extract_pdf(uploaded)
+
+    is_text_pdf = vision_processor.is_probably_text_pdf(
+        uploaded.getvalue()
+    )
+
+    if not is_text_pdf:
+        st.info(
+            "Scanned/image-based paper detected. "
+            "Mwalimu AI is switching to visual processing."
+        )
             )
                 if not text.strip():
                     st.error("No readable text was extracted. OCR for scanned papers is still required for image-only papers.")
