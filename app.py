@@ -26,7 +26,9 @@ def extract_pdf(uploaded_file):
         text = page.extract_text() or ""
         pages.append(f"\n--- PAGE {i} ---\n{text}")
     return "\n".join(pages)
-
+is_text_pdf = vision_processor.is_probably_text_pdf(
+    uploaded_file.getvalue()
+)
 def split_question_blocks(paper_text):
     """Best-effort question inventory for completeness checking."""
     matches = list(re.finditer(
