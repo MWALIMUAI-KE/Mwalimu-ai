@@ -206,9 +206,7 @@ if uploaded:
             "Mwalimu AI is switching to visual processing."
         )
             )
-                if not text.strip():
-                    st.error("No readable text was extracted. OCR for scanned papers is still required for image-only papers.")
-                    st.stop()
+                
 
                 scheme = generate_marking_scheme(text, subject, level)
 
