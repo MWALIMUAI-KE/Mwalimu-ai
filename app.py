@@ -209,24 +209,29 @@ if not is_text_pdf:
         uploaded.getvalue(),
         source_name=uploaded.name
     )
-
-    visual_document = vision_processor.analyze_document(
-        visual_document
+visual_document = 
+vision_processor.analyze_document(
+visual_document
     )
 
     visual_text_parts = []
 
-    for page in visual_document.pages:
-        if page.vision_analysis:
-            visual_text_parts.append(
-                f"\n--- PAGE {page.page_number} ---\n"
-                f"{page.vision_analysis}"
-            )
+                        for page in 
+visual_document.pages:
+                           if 
+    page.vision_analysis:
+    visual_text_parts.append(
+    f"\n--- PAGE {page.page_number} 
+    ---\n"
+    f"{page.vision_analysis}"
+                               )
 
-    text = 
-    "\n".join(visual_text_parts).strip()    
-    scheme = 
-generate_marking_scheme(text, subject, level)
+                       text = 
+    "\n".join(visual_text_parts).strip
+()    
+                    scheme = 
+generate_marking_scheme(text, 
+subject, level)
     
     
 
