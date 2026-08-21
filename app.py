@@ -224,9 +224,8 @@ if not is_text_pdf:
             )
 
     text = 
-    "\n".join(visual_text_parts).strip()    text = "\n".join(visual_text_parts).strip()
-
-scheme = 
+    "\n".join(visual_text_parts).strip()    
+    scheme = 
 generate_marking_scheme(text, subject, level)
     
     
