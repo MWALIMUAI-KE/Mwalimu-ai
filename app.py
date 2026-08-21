@@ -27,7 +27,7 @@ def extract_pdf(uploaded_file):
         pages.append(f"\n--- PAGE {i} ---\n{text}")
     return "\n".join(pages)
 
-)
+
 def split_question_blocks(paper_text):
     """Best-effort question inventory for completeness checking."""
     matches = list(re.finditer(
