@@ -1,0 +1,33 @@
+name: Mwalimu AI Python Check
+
+on:
+  push:
+    branches:
+      - v3-2-visual-marking-upgrade
+  pull_request:
+    branches:
+      - v3-2-visual-marking-upgrade
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: |
+          python -m py_compile app.py
+          python -m py_compile vision_processor.py
+          python -m py_compile security.py
