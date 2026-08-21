@@ -193,8 +193,8 @@ if uploaded:
     if st.button("🚀 Generate Marking Scheme", type="primary"):
         with st.spinner("Mwalimu AI is analysing the paper..."):
             try:
-                
-    text = extract_pdf(uploaded)
+                 text =
+extract_pdf(uploaded)
 
     is_text_pdf = vision_processor.is_probably_text_pdf(
         uploaded.getvalue()
