@@ -246,7 +246,8 @@ subject, level)
                     mime="text/plain"
                 )
             except Exception as e:
-                st.error(f"Generation failed: {e}")
+                st.error(f"Generation failed: 
+                {e}")
 
 with st.expander("🧪 Specialist tools — development test"):
     mathtype_demo_panel()
