@@ -180,7 +180,7 @@ def mathtype_demo_panel():
     st.link_button("Open MathType/ChemType demo", "https://demo.wiris.com/mathtype/en/developers.php")
     st.info("The current MVP is text-first. This panel keeps the legitimate WIRIS development demo available while we wait for the commercial integration quotation and refine the editable HTML rendering layer.")
 
-subject = st.selectbox(
+
     "Subject",
     ["Mathematics","Chemistry","Biology","Physics","Agriculture",
      "English","Kiswahili","IRE","Other"]
@@ -211,7 +211,7 @@ if uploaded:
             except Exception as e:
                 ...
 
-
+subject = st.selectbox(
 with st.expander("🧪 Specialist tools — development test"):
     mathtype_demo_panel()
     geogebra_panel()
