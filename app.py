@@ -194,7 +194,8 @@ if uploaded:
     if st.button(...):
         with st.spinner(...):
             try:
-                text = extract_pdf(uploaded)
+                text = 
+                extract_pdf(uploaded)
 
                 is_text_pdf = ...
 
