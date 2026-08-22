@@ -189,65 +189,27 @@ level = st.text_input("Level / Grade", "Grade 10")
 uploaded = st.file_uploader("Upload a question paper (PDF)", type=["pdf"])
 
 if uploaded:
-    st.success(f"Loaded: {uploaded.name}")
-    if st.button("🚀 Generate Marking Scheme", type="primary"):
-        with st.spinner("Mwalimu AI is analysing the paper..."):
+    st.success(...)
+
+    if st.button(...):
+        with st.spinner(...):
             try:
-                 text =
-extract_pdf(uploaded)
+                text = extract_pdf(uploaded)
 
-    is_text_pdf = vision_processor.is_probably_text_pdf(
-        uploaded.getvalue()
-    )
-if not is_text_pdf:
-    st.info(
-        "Scanned/image-based paper detected. "
-        "Mwalimu AI is switching to visual processing."
-    )
+                is_text_pdf = ...
 
-    visual_document = vision_processor.process_pdf(
-        uploaded.getvalue(),
-        source_name=uploaded.name
-    )
-visual_document = 
-vision_processor.analyze_document(
-visual_document
-    )
+                if not is_text_pdf:
+                    ...
+                    for page in ...:
+                        if page.vision_analysis:
+                            ...
 
-    visual_text_parts = []
+                scheme = generate_marking_scheme(...)
 
-                        for page in 
-visual_document.pages:
-                           if 
-    page.vision_analysis:
-    visual_text_parts.append(
-    f"\n--- PAGE {page.page_number} 
-    ---\n"
-    f"{page.vision_analysis}"
-                               )
-
-                       text = 
-    "\n".join(visual_text_parts).strip
-()    
-                    scheme = 
-generate_marking_scheme(text, 
-subject, level)
-    
-    
-
-                st.subheader("Generated Marking Scheme")
-                show_math_rendered(scheme)
-                show_specialist_outputs(scheme)
-
-                st.download_button(
-                    "Download marking scheme",
-                    scheme,
-                    file_name="mwalimu_ai_marking_scheme.txt",
-                    mime="text/plain"
-                )
+                ...
             except Exception as e:
-                st.error(f"Generation failed: 
-                {e}")
+                ...
+
 
 with st.expander("🧪 Specialist tools — development test"):
     mathtype_demo_panel()
