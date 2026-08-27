@@ -2,6 +2,7 @@ import os
 import io
 import re
 import base64
+
 import streamlit as st
 import streamlit.components.v1 as components
 from pypdf import PdfReader
@@ -14,9 +15,7 @@ except ImportError:
 
 
 # ============================================================
-# MWALIMU AI — MVP 4.2
-# Original Paper + Page Visual Analysis + Formula Support
-# + GeoGebra + Completeness Tracking
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -27,8 +26,8 @@ st.set_page_config(
 
 st.title("🤖 Mwalimu AI")
 st.caption(
-    "Teacher AI assistant — MVP 4.2: "
-    "Original paper + visual question analysis + formulas + GeoGebra"
+    "Teacher AI assistant — Visual MVP3: "
+    "original paper + visual analysis + workings + formulas + diagrams"
 )
 
 
@@ -47,10 +46,7 @@ if not key:
 
 client = OpenAI(api_key=key)
 
-MODEL = os.getenv(
-    "OPENAI_MODEL",
-    "gpt-5.4-mini"
-)
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
 
 
 # ============================================================
@@ -59,11 +55,10 @@ MODEL = os.getenv(
 
 def extract_pdf_text(data):
     """
-    Extract whatever machine-readable text exists in the PDF.
+    Extract machine-readable text.
 
-    This is NOT treated as authoritative for diagrams, formulae,
-    symbols or page layout. The rendered page image is authoritative
-    for visual information.
+    This is supplementary information only.
+    The visual page images remain authoritative.
     """
 
     try:
@@ -72,13 +67,10 @@ def extract_pdf_text(data):
         pages = []
 
         for i, page in enumerate(reader.pages, 1):
-            try:
-                txt = page.extract_text() or ""
-            except Exception:
-                txt = ""
+            text = page.extract_text() or ""
 
             pages.append(
-                f"--- PAGE {i} TEXT ---\n{txt}"
+                f"--- PAGE {i} TEXT ---\n{text}"
             )
 
         return "\n\n".join(pages)
@@ -95,10 +87,7 @@ def render_pages(data, dpi=150):
     """
     Render every PDF page to PNG.
 
-    These images are used for:
-      - displaying the real paper
-      - visual inspection
-      - page/question mapping
+    This is the critical visual layer.
     """
 
     if fitz is None:
@@ -110,10 +99,10 @@ def render_pages(data, dpi=150):
             filetype="pdf"
         )
 
-        pages = []
-
         scale = dpi / 72
         matrix = fitz.Matrix(scale, scale)
+
+        pages = []
 
         for page_number, page in enumerate(doc, 1):
 
@@ -122,12 +111,12 @@ def render_pages(data, dpi=150):
                 alpha=False
             )
 
-            image_bytes = pix.tobytes("png")
+            png = pix.tobytes("png")
 
             pages.append(
                 {
                     "page": page_number,
-                    "image": image_bytes
+                    "image": png
                 }
             )
 
@@ -140,7 +129,7 @@ def render_pages(data, dpi=150):
 
 
 # ============================================================
-# ORIGINAL PAPER DISPLAY
+# DISPLAY ORIGINAL PAPER
 # ============================================================
 
 def show_original(data):
@@ -148,7 +137,7 @@ def show_original(data):
     st.subheader("📄 Original Question Paper")
 
     st.caption(
-        "The original uploaded paper is displayed unchanged. "
+        "This is the actual uploaded paper. "
         "Mwalimu AI does not reconstruct the question paper."
     )
 
@@ -160,25 +149,22 @@ def show_original(data):
 
             st.image(
                 item["image"],
-                caption=(
-                    f"Original question paper — "
-                    f"page {item['page']}"
-                ),
+                caption=f"Original paper — page {item['page']}",
                 use_container_width=True
             )
 
     else:
 
-        encoded = base64.b64encode(data).decode()
+        b64 = base64.b64encode(data).decode()
 
         components.html(
             f"""
             <iframe
-                src="data:application/pdf;base64,{encoded}"
+                src="data:application/pdf;base64,{b64}"
                 width="100%"
                 height="900"
-                style="border:1px solid #ddd;"
-            ></iframe>
+                style="border:1px solid #ddd;">
+            </iframe>
             """,
             height=920,
             scrolling=True
@@ -193,502 +179,108 @@ def question_numbers(text):
 
     patterns = [
         r"(?im)^\s*(?:question\s*)?(\d{1,2})[.\):\-]\s+",
-        r"(?im)^\s*(\d{1,2})\s*[.\)]\s+",
+        r"(?im)^\s*(\d{1,2})\s*[.)]\s+"
     ]
 
     found = []
 
     for pattern in patterns:
+        found.extend(
+            re.findall(pattern, text)
+        )
 
-        try:
-            found.extend(
-                re.findall(pattern, text)
-            )
-        except Exception:
-            pass
-
-    return list(
-        dict.fromkeys(found)
-    )
+    return list(dict.fromkeys(found))
 
 
 # ============================================================
-# VISUAL / SUBJECT NEED DETECTION
+# DETECT VISUAL / MATHEMATICAL CONTENT
 # ============================================================
 
-def needs(text, subject):
+def detect_features(text, subject):
 
     t = text.lower()
 
-    geometry = bool(
-        re.search(
-            r"\b("
-            r"construct|construction|locus|bisect|"
-            r"perpendicular|parallel|bearing|circle|"
-            r"tangent|transformation|reflection|rotation|"
-            r"translation|enlargement|vector|geometry"
-            r")\b",
-            t
-        )
-    )
+    return {
 
-    graph = bool(
-        re.search(
-            r"\b("
-            r"graph|plot|curve|coordinate|gradient|"
-            r"quadratic|cubic|function|sketch|axis"
-            r")\b",
-            t
-        )
-    )
-
-    formula = (
-        subject.lower()
-        in {
-            "mathematics",
-            "physics",
-            "chemistry"
-        }
-        or bool(
+        "geometry": bool(
             re.search(
                 r"\b("
-                r"equation|formula|fraction|indices|surds|"
-                r"matrix|logarithm|differentiation|"
-                r"integration|probability|quadratic|"
-                r"velocity|acceleration|force|energy|"
-                r"mole|concentration"
+                r"construct|construction|locus|bisect|"
+                r"perpendicular|parallel|bearing|circle|"
+                r"tangent|transformation|reflection|rotation|"
+                r"translation|enlargement|vector|geometry"
+                r")\b",
+                t
+            )
+        ),
+
+        "graph": bool(
+            re.search(
+                r"\b("
+                r"graph|plot|curve|coordinate|gradient|"
+                r"quadratic|cubic|function|sketch|axis"
+                r")\b",
+                t
+            )
+        ),
+
+        "formula": (
+            subject.lower()
+            in {
+                "mathematics",
+                "physics",
+                "chemistry"
+            }
+            or bool(
+                re.search(
+                    r"\b("
+                    r"equation|formula|fraction|indices|"
+                    r"surds|matrix|logarithm|differentiation|"
+                    r"integration|probability|quadratic|"
+                    r"calculate|calculate the"
+                    r")\b",
+                    t
+                )
+            )
+        ),
+
+        "diagram": bool(
+            re.search(
+                r"\b("
+                r"diagram|figure|apparatus|shown|"
+                r"sketch|graph|illustration|drawing|"
+                r"construction"
                 r")\b",
                 t
             )
         )
-    )
-
-    diagram = bool(
-        re.search(
-            r"\b("
-            r"diagram|figure|apparatus|shown|"
-            r"sketch|graph|illustration|drawing|"
-            r"image|shape"
-            r")\b",
-            t
-        )
-    )
-
-    return {
-        "geometry": geometry,
-        "graph": graph,
-        "formula": formula,
-        "diagram": diagram
     }
 
 
 # ============================================================
-# VISUAL PAGE ANALYSIS
+# BUILD VISUAL INPUT
 # ============================================================
 
-def build_visual_pages(data):
+def build_visual_inputs(pages):
 
-    pages = render_pages(
-        data,
-        dpi=160
-    )
+    content = []
 
-    return pages
-
-
-def analyse_visual_pages(
-    data,
-    filename,
-    subject,
-    level,
-    text
-):
-    """
-    Sends the ORIGINAL PDF to the model together with rendered
-    page images.
-
-    The page images are explicitly labelled so the model is asked
-    to inspect diagrams, equations, tables and graphical content
-    rather than relying exclusively on OCR/PDF extraction.
-    """
-
-    file_obj = client.files.create(
-        file=(filename, data),
-        purpose="user_data"
-    )
-
-    page_images = build_visual_pages(data)
-
-    ns = needs(
-        text,
-        subject
-    )
-
-    nums = ", ".join(
-        question_numbers(text)
-    )
-
-    if not nums:
-        nums = "Not reliably extracted from text."
-
-
-    # --------------------------------------------------------
-    # Visual page inventory
-    # --------------------------------------------------------
-
-    page_inventory = []
-
-    for item in page_images:
-
-        page_inventory.append(
-            f"PAGE {item['page']}: "
-            f"Rendered visual page available for inspection."
-        )
-
-    page_inventory_text = "\n".join(
-        page_inventory
-    )
-
-
-    # --------------------------------------------------------
-    # MASTER PROMPT
-    # --------------------------------------------------------
-
-    prompt = f"""
-You are Mwalimu AI, a rigorous Kenyan examination marking assistant.
-
-SUBJECT:
-{subject}
-
-LEVEL:
-{level}
-
-PRELIMINARY TEXT QUESTION INVENTORY:
-{nums}
-
-DETECTED NEEDS:
-Geometry = {ns["geometry"]}
-Graphing = {ns["graph"]}
-Formula-heavy = {ns["formula"]}
-Diagrams = {ns["diagram"]}
-
-VISUAL PAGE INVENTORY:
-{page_inventory_text}
-
-============================================================
-CORE RULE
-============================================================
-
-The uploaded PDF is the AUTHORITATIVE ORIGINAL QUESTION PAPER.
-
-The original paper must NOT be reconstructed.
-
-The application separately displays the original PDF to the
-teacher.
-
-Your job is to analyse the original examination paper and
-produce ONLY the answers / marking scheme corresponding to
-the original questions.
-
-DO NOT rewrite the question paper.
-
-DO NOT paraphrase the question into a replacement question.
-
-DO NOT invent diagrams.
-
-DO NOT invent numbers, labels, dimensions or symbols.
-
-DO NOT silently omit questions.
-
-============================================================
-VISUAL-FIRST INSTRUCTION
-============================================================
-
-Inspect the actual visual pages carefully.
-
-For every page, look for:
-
-- diagrams
-- geometric figures
-- constructions
-- graphs
-- axes
-- tables
-- apparatus
-- labelled drawings
-- arrows
-- measurements
-- fractions
-- mathematical symbols
-- chemical formulae
-- subscripts
-- superscripts
-- indices
-- roots
-- equations
-- matrices
-- signs
-- units
-- handwritten-style markings if present
-- shaded regions
-- curves
-- angles
-- bearings
-- labels attached to diagrams
-
-The rendered page image is especially important whenever
-ordinary text extraction is incomplete.
-
-If text extraction says one thing but the visible page clearly
-shows something different, trust the visible page.
-
-If something is genuinely unreadable, report it rather than
-guessing.
-
-============================================================
-QUESTION MAPPING
-============================================================
-
-For every question:
-
-1. Identify the page containing it.
-2. Identify the question number.
-3. Identify all sub-questions.
-4. Identify whether it contains visual material.
-5. Identify any diagram/graph/table/formula needed to solve it.
-6. Solve it.
-7. Provide the marking points.
-8. Preserve the original numbering.
-
-Do not combine unrelated questions.
-
-Do not move an answer to another question.
-
-============================================================
-MATHEMATICS
-============================================================
-
-For mathematical questions:
-
-- Show essential working.
-- Show substitutions.
-- Show intermediate calculations where useful.
-- Give the final answer clearly.
-- Use proper LaTeX.
-- Preserve fractions.
-- Preserve roots.
-- Preserve powers and indices.
-- Preserve mathematical symbols.
-- Do not replace equations with vague prose.
-
-For graph questions:
-
-- identify axes
-- identify scale if visible
-- identify coordinates
-- identify plotted points
-- identify the curve
-- identify intercepts where relevant
-- explain the required graph result
-- provide GeoGebra commands where useful
-
-For construction questions:
-
-- identify the exact construction required
-- identify visible points/labels
-- give construction steps
-- provide GeoGebra commands where useful
-
-============================================================
-CHEMISTRY
-============================================================
-
-For Chemistry:
-
-- preserve chemical formulae
-- preserve subscripts
-- balance equations
-- show mole calculations where required
-- show substitutions
-- show units
-- identify observations
-- distinguish observations from conclusions
-- do not invent apparatus or diagram labels
-
-============================================================
-PHYSICS
-============================================================
-
-For Physics:
-
-- state the relevant formula
-- substitute values
-- show working
-- include units
-- give final answer
-- inspect diagrams and circuit/force/optics drawings
-- interpret graphs visually
-
-============================================================
-BIOLOGY
-============================================================
-
-For Biology:
-
-- inspect biological diagrams
-- identify labels from the original figure
-- answer according to the visible figure
-- do not invent labels
-- include marking points
-- preserve sequence where processes are involved
-
-============================================================
-AGRICULTURE AND OTHER SUBJECTS
-============================================================
-
-Use the same principle:
-
-The visible original paper is authoritative.
-
-Answer every question and every sub-question.
-
-============================================================
-VISUAL CHECK BLOCK
-============================================================
-
-For every question that relies on visual information, output:
-
-[VISUAL CHECK]
-Question: ...
-Page: ...
-Visual information used: ...
-Confidence: High / Medium / Low
-[/VISUAL CHECK]
-
-If the visual is unclear:
-
-[VISUAL CHECK]
-Question: ...
-Page: ...
-Visual information used: ...
-Confidence: Low
-Unclear element: ...
-[/VISUAL CHECK]
-
-NEVER invent missing visual information.
-
-============================================================
-GEOGEBRA BLOCK
-============================================================
-
-For geometry, construction and graph questions where GeoGebra
-would help, output:
-
-[GEOGEBRA]
-Question: ...
-Purpose: ...
-Input/Commands:
-1. ...
-2. ...
-3. ...
-Expected result: ...
-[/GEOGEBRA]
-
-Commands must be practical GeoGebra commands.
-
-============================================================
-FORMULA BLOCK
-============================================================
-
-For important mathematical/scientific equations output:
-
-[FORMULA]
-Question: ...
-Formula:
-LaTeX: ...
-Meaning / substitution: ...
-[/FORMULA]
-
-============================================================
-COMPLETENESS
-============================================================
-
-At the end output:
-
-[COMPLETENESS CHECK]
-Questions identified: ...
-Questions processed: ...
-Sub-questions processed: ...
-Visual questions checked: ...
-Formula questions checked: ...
-GeoGebra tasks: ...
-Unresolved / unclear items: ...
-[/COMPLETENESS CHECK]
-
-If complete, state:
-
-No question or sub-question was intentionally omitted.
-
-============================================================
-IMPORTANT
-============================================================
-
-Do not mention ChemType.
-
-Do not mention MathType.
-
-Do not recreate the original paper.
-
-Do not generate a replacement version of the questions.
-
-Generate answers and marking information only.
-
-Be rigorous.
-"""
-
-
-    # --------------------------------------------------------
-    # Build multimodal request
-    # --------------------------------------------------------
-
-    content = [
-        {
-            "type": "input_file",
-            "file_id": file_obj.id
-        },
-        {
-            "type": "input_text",
-            "text": prompt
-        }
-    ]
-
-
-    # --------------------------------------------------------
-    # Add rendered pages as visual inputs
-    # --------------------------------------------------------
-
-    #
-    # The original PDF remains the primary document.
-    # Rendered pages provide an additional visual representation
-    # so diagrams and mathematical notation are less dependent
-    # on PDF text extraction.
-    #
-
-    MAX_VISUAL_PAGES = 40
-
-    for item in page_images[:MAX_VISUAL_PAGES]:
+    for item in pages:
 
         encoded = base64.b64encode(
             item["image"]
-        ).decode()
+        ).decode("utf-8")
 
         content.append(
             {
                 "type": "input_text",
                 "text": (
-                    f"\n===== VISUAL PAGE "
+                    f"\n\n===== ORIGINAL PAPER PAGE "
                     f"{item['page']} =====\n"
-                    f"Inspect this page image carefully."
+                    "Inspect this page visually. "
+                    "All diagrams, graphs, tables, "
+                    "symbols, figures, constructions and "
+                    "layout on this page are authoritative."
                 )
             }
         )
@@ -702,10 +294,402 @@ Be rigorous.
             }
         )
 
+    return content
 
-    # --------------------------------------------------------
-    # Call model
-    # --------------------------------------------------------
+
+# ============================================================
+# MARKING SCHEME PROMPT
+# ============================================================
+
+def build_prompt(
+    subject,
+    level,
+    text,
+    features,
+    numbers
+):
+
+    return f"""
+You are Mwalimu AI, a rigorous Kenyan examination
+marking-scheme assistant.
+
+SUBJECT:
+{subject}
+
+LEVEL / GRADE:
+{level}
+
+PRELIMINARY QUESTION NUMBERS:
+{numbers}
+
+VISUAL FEATURES DETECTED:
+
+Geometry:
+{features["geometry"]}
+
+Graphs:
+{features["graph"]}
+
+Formula-heavy:
+{features["formula"]}
+
+Diagrams:
+{features["diagram"]}
+
+
+============================================================
+MOST IMPORTANT INSTRUCTION
+============================================================
+
+The ORIGINAL PAGE IMAGES supplied with this request are
+the authoritative question paper.
+
+You must visually inspect the actual pages.
+
+DO NOT rely only on OCR or extracted text.
+
+The extracted text is supplementary.
+
+When text extraction conflicts with the original page image,
+trust the original page image.
+
+
+============================================================
+VISUAL UNDERSTANDING
+============================================================
+
+You must inspect:
+
+• diagrams
+• graphs
+• geometric constructions
+• tables
+• axes
+• labels
+• arrows
+• measurements
+• fractions
+• mathematical symbols
+• indices
+• roots
+• equations
+• chemical formulae
+• chemical structures
+• apparatus
+• biological drawings
+• maps
+• charts
+• shaded regions
+• lines and angles
+• labels attached to diagrams
+
+
+If a question refers to:
+
+"the diagram below"
+
+"the figure"
+
+"the graph"
+
+"the apparatus shown"
+
+"the construction"
+
+or similar wording,
+
+you MUST inspect the corresponding visual material
+before answering.
+
+
+============================================================
+QUESTION COMPLETENESS
+============================================================
+
+Process EVERY question.
+
+Process EVERY sub-question.
+
+Do NOT silently omit questions.
+
+Preserve the original numbering.
+
+If the paper contains:
+
+1(a)
+1(b)
+1(c)
+
+then answer:
+
+1(a)
+1(b)
+1(c)
+
+Do not merge them.
+
+
+============================================================
+OUTPUT STYLE
+============================================================
+
+Generate a professional teacher-ready marking scheme.
+
+For each question use:
+
+QUESTION 1(a)
+
+Answer:
+...
+
+Working:
+...
+
+Marks:
+...
+
+QUESTION 1(b)
+
+Answer:
+...
+
+Working:
+...
+
+Marks:
+...
+
+
+For theory questions, give the precise expected answer.
+
+For calculation questions, show the essential working.
+
+For Mathematics and Physics:
+
+• show equations clearly
+• show substitution
+• show calculations
+• show units
+• give the final answer
+• use LaTeX where appropriate
+
+For Chemistry:
+
+• write chemical formulae correctly
+• balance equations correctly
+• show calculations
+• preserve charges, subscripts and states where relevant
+
+For Biology:
+
+• use correct biological terminology
+• identify structures accurately
+• use the actual diagram where relevant
+
+For geometry:
+
+• identify the construction required
+• explain construction steps
+• use the actual measurements/labels visible in the diagram
+• do not invent measurements
+
+For graph questions:
+
+• identify the axes
+• identify scales
+• identify coordinates/data
+• explain plotting
+• calculate gradient where required
+• identify intercepts where required
+• describe the curve correctly
+
+
+============================================================
+DIAGRAMS
+============================================================
+
+DO NOT attempt to recreate an existing diagram using
+ordinary text.
+
+Instead, describe what the diagram shows accurately
+when necessary and solve the question using the actual
+visual.
+
+If the diagram contains information essential to the
+answer, explicitly state that information.
+
+
+============================================================
+UNCLEAR VISUAL INFORMATION
+============================================================
+
+If a diagram or symbol genuinely cannot be read:
+
+DO NOT GUESS.
+
+Write:
+
+"Visual information unclear — please inspect the original
+page."
+
+Then identify the exact question affected.
+
+
+============================================================
+FORMULAS
+============================================================
+
+Use proper mathematical notation.
+
+Examples:
+
+$$
+a^2+b^2=c^2
+$$
+
+$$
+v = u + at
+$$
+
+$$
+\\frac{{a}}{{b}}
+$$
+
+Do not replace mathematical notation with crude OCR such as:
+
+a2 + b2 = c2
+
+when proper notation is possible.
+
+
+============================================================
+MARKS
+============================================================
+
+Award marks according to the likely examination logic.
+
+Do not invent excessive marks.
+
+Where workings are required, distribute marks logically
+between method and final answer.
+
+
+============================================================
+FINAL COMPLETENESS AUDIT
+============================================================
+
+At the end output:
+
+[COMPLETENESS CHECK]
+
+Questions identified:
+...
+
+Questions answered:
+...
+
+Sub-questions answered:
+...
+
+Visual questions inspected:
+...
+
+Diagram questions:
+...
+
+Graph questions:
+...
+
+Formula/calculation questions:
+...
+
+Unclear questions:
+...
+
+No question or sub-question was intentionally omitted.
+
+[/COMPLETENESS CHECK]
+
+
+Do not mention:
+
+ChemType
+MathType
+internal software
+OCR limitations
+
+unless specifically necessary to explain an unresolved
+visual issue.
+"""
+
+
+# ============================================================
+# CALL VISION MODEL
+# ============================================================
+
+def analyse_paper(
+    data,
+    filename,
+    subject,
+    level,
+    text
+):
+
+    pages = render_pages(
+        data,
+        dpi=150
+    )
+
+    if not pages:
+
+        raise RuntimeError(
+            "The PDF pages could not be rendered. "
+            "Please ensure PyMuPDF is installed."
+        )
+
+    features = detect_features(
+        text,
+        subject
+    )
+
+    numbers = (
+        ", ".join(question_numbers(text))
+        or "Not reliably extracted"
+    )
+
+    prompt = build_prompt(
+        subject=subject,
+        level=level,
+        text=text,
+        features=features,
+        numbers=numbers
+    )
+
+    visual_content = build_visual_inputs(
+        pages
+    )
+
+    content = [
+
+        {
+            "type": "input_text",
+            "text": prompt
+        },
+
+        {
+            "type": "input_text",
+            "text": (
+                "\n\n===== SUPPLEMENTARY MACHINE-READABLE "
+                "TEXT =====\n"
+                f"{text[:50000]}"
+            )
+        }
+
+    ]
+
+    content.extend(
+        visual_content
+    )
 
     response = client.responses.create(
         model=MODEL,
@@ -721,165 +705,52 @@ Be rigorous.
 
 
 # ============================================================
-# REMOVE SPECIAL BLOCKS FROM MAIN MARKING SCHEME
+# CLEAN MARKING SCHEME
 # ============================================================
 
-def main_scheme(text):
+def extract_completeness(text):
 
-    tags = [
-        "GEOGEBRA",
-        "VISUAL CHECK",
-        "FORMULA",
-        "COMPLETENESS CHECK"
-    ]
-
-    result = text
-
-    for tag in tags:
-
-        result = re.sub(
-            rf"\[{tag}\].*?\[/{tag}\]",
-            "",
-            result,
-            flags=re.S | re.I
-        )
-
-    return result.strip()
-
-
-# ============================================================
-# SPECIALIST INFORMATION
-# ============================================================
-
-def specialist(text):
-
-    visuals = re.findall(
-        r"\[VISUAL CHECK\](.*?)\[/VISUAL CHECK\]",
+    match = re.search(
+        r"\[COMPLETENESS CHECK\](.*?)"
+        r"\[/COMPLETENESS CHECK\]",
         text,
         flags=re.S | re.I
     )
 
-    geo = re.findall(
-        r"\[GEOGEBRA\](.*?)\[/GEOGEBRA\]",
+    return (
+        match.group(1).strip()
+        if match
+        else None
+    )
+
+
+def clean_scheme(text):
+
+    text = re.sub(
+        r"\[COMPLETENESS CHECK\].*?"
+        r"\[/COMPLETENESS CHECK\]",
+        "",
         text,
         flags=re.S | re.I
     )
 
-    formulas = re.findall(
-        r"\[FORMULA\](.*?)\[/FORMULA\]",
-        text,
-        flags=re.S | re.I
-    )
-
-    completeness = re.search(
-        r"\[COMPLETENESS CHECK\](.*?)\[/COMPLETENESS CHECK\]",
-        text,
-        flags=re.S | re.I
-    )
-
-
-    # --------------------------------------------------------
-    # VISUAL VERIFICATION
-    # --------------------------------------------------------
-
-    if visuals:
-
-        st.subheader(
-            "👁️ Visual verification"
-        )
-
-        for i, item in enumerate(
-            visuals,
-            1
-        ):
-
-            with st.expander(
-                f"Visual check {i}"
-            ):
-
-                st.write(
-                    item.strip()
-                )
-
-
-    # --------------------------------------------------------
-    # FORMULAS
-    # --------------------------------------------------------
-
-    if formulas:
-
-        st.subheader(
-            "∑ Formula verification"
-        )
-
-        for i, item in enumerate(
-            formulas,
-            1
-        ):
-
-            with st.expander(
-                f"Formula {i}"
-            ):
-
-                st.markdown(
-                    item.strip()
-                )
-
-
-    # --------------------------------------------------------
-    # GEOGEBRA
-    # --------------------------------------------------------
-
-    if geo:
-
-        st.subheader(
-            "📐 GeoGebra tasks"
-        )
-
-        for i, item in enumerate(
-            geo,
-            1
-        ):
-
-            with st.expander(
-                f"GeoGebra task {i}",
-                expanded=True
-            ):
-
-                st.code(
-                    item.strip()
-                )
-
-
-    # --------------------------------------------------------
-    # COMPLETENESS
-    # --------------------------------------------------------
-
-    if completeness:
-
-        st.subheader(
-            "✅ Completeness check"
-        )
-
-        st.info(
-            completeness.group(1).strip()
-        )
+    return text.strip()
 
 
 # ============================================================
-# FORMULAI WORKSPACE
+# FORMULA DISPLAY
 # ============================================================
 
 def formula_workspace(text):
 
     st.subheader(
-        "∑ FormulAI — formula workspace"
+        "∑ Formula & Mathematical Notation"
     )
 
     st.caption(
-        "Mwalimu AI uses LaTeX for accurate mathematical and "
-        "scientific notation. FormulAI can be used to convert "
-        "equations into editable Word-ready formulae."
+        "Mwalimu AI preserves mathematical notation "
+        "using LaTeX. FormulAI can be used when an "
+        "editable Word-ready formula is required."
     )
 
     st.link_button(
@@ -887,12 +758,15 @@ def formula_workspace(text):
         "https://formulai.io/formula-generator"
     )
 
-
-    # --------------------------------------------------------
-    # Capture common LaTeX forms
-    # --------------------------------------------------------
-
     formulas = []
+
+    formulas.extend(
+        re.findall(
+            r"\$\$(.*?)\$\$",
+            text,
+            flags=re.S
+        )
+    )
 
     formulas.extend(
         re.findall(
@@ -910,11 +784,10 @@ def formula_workspace(text):
         )
     )
 
-
     if formulas:
 
         with st.expander(
-            f"📋 Extracted formulas ({len(formulas)})"
+            f"📋 Detected formulas ({len(formulas)})"
         ):
 
             for i, formula in enumerate(
@@ -922,19 +795,25 @@ def formula_workspace(text):
                 1
             ):
 
+                st.markdown(
+                    f"**Formula {i}**"
+                )
+
                 st.code(
                     formula.strip()
                 )
 
 
 # ============================================================
-# GEOGEBRA WORKSPACE
+# GEOGEBRA
 # ============================================================
 
-def geogebra():
+def geogebra_workspace():
 
-    st.subheader(
-        "📐 GeoGebra"
+    st.subheader("📐 GeoGebra Workspace")
+
+    st.caption(
+        "Useful for geometry, constructions and graphing."
     )
 
     geometry, graphing, calculator = st.tabs(
@@ -945,47 +824,66 @@ def geogebra():
         ]
     )
 
-    urls = [
-        "https://www.geogebra.org/geometry",
-        "https://www.geogebra.org/graphing",
-        "https://www.geogebra.org/calculator"
-    ]
+    with geometry:
 
-    for tab, url in zip(
-        (
-            geometry,
-            graphing,
-            calculator
-        ),
-        urls
-    ):
+        components.iframe(
+            "https://www.geogebra.org/geometry",
+            height=650,
+            scrolling=True
+        )
 
-        with tab:
+    with graphing:
 
-            components.iframe(
-                url,
-                height=650,
-                scrolling=True
-            )
+        components.iframe(
+            "https://www.geogebra.org/graphing",
+            height=650,
+            scrolling=True
+        )
+
+    with calculator:
+
+        components.iframe(
+            "https://www.geogebra.org/calculator",
+            height=650,
+            scrolling=True
+        )
 
 
 # ============================================================
-# SESSION RESET WHEN A NEW PAPER IS UPLOADED
+# VISUAL AUDIT
 # ============================================================
 
-def paper_identity(uploaded):
+def visual_audit(text):
 
-    if uploaded is None:
-        return None
-
-    return (
-        uploaded.name,
-        len(uploaded.getvalue())
+    visual_items = re.findall(
+        r"\[VISUAL CHECK\](.*?)"
+        r"\[/VISUAL CHECK\]",
+        text,
+        flags=re.S | re.I
     )
 
+    if visual_items:
+
+        st.subheader(
+            "👁️ Visual Analysis"
+        )
+
+        for i, item in enumerate(
+            visual_items,
+            1
+        ):
+
+            with st.expander(
+                f"Visual analysis {i}"
+            ):
+
+                st.write(
+                    item.strip()
+                )
+
 
 # ============================================================
-# USER INTERFACE
+# MAIN APPLICATION
 # ============================================================
 
 subject = st.selectbox(
@@ -1014,112 +912,51 @@ uploaded = st.file_uploader(
 )
 
 
-# ============================================================
-# MAIN APPLICATION
-# ============================================================
-
 if uploaded:
 
     data = uploaded.getvalue()
-
-    current_identity = (
-        uploaded.name,
-        len(data)
-    )
-
-
-    # Clear old result if a different paper is uploaded
-
-    if (
-        st.session_state.get(
-            "paper_identity"
-        )
-        != current_identity
-    ):
-
-        st.session_state[
-            "paper_identity"
-        ] = current_identity
-
-        st.session_state.pop(
-            "scheme",
-            None
-        )
-
 
     st.success(
         f"Loaded: {uploaded.name}"
     )
 
-
     # --------------------------------------------------------
     # ORIGINAL PAPER
     # --------------------------------------------------------
 
-    show_original(
-        data
-    )
-
+    show_original(data)
 
     # --------------------------------------------------------
-    # MACHINE TEXT
+    # TEXT TRACE
     # --------------------------------------------------------
 
-    text = extract_pdf_text(
-        data
-    )
+    text = extract_pdf_text(data)
 
     with st.expander(
-        "🔎 Machine-readable text trace"
+        "🔎 Supplementary machine-readable text"
     ):
 
         st.text(
             text[:30000]
         )
 
-
-    # --------------------------------------------------------
-    # VISUAL PAGE COUNT
-    # --------------------------------------------------------
-
-    rendered_pages = render_pages(
-        data,
-        dpi=160
-    )
-
-    if rendered_pages:
-
-        st.caption(
-            f"👁️ Visual analysis ready: "
-            f"{len(rendered_pages)} page(s)"
-        )
-
-    else:
-
-        st.warning(
-            "Page rendering is unavailable. "
-            "The PDF will still be analysed using the "
-            "original uploaded document and extracted text."
-        )
-
-
     # --------------------------------------------------------
     # GENERATE
     # --------------------------------------------------------
 
     if st.button(
-        "📝 Generate Marking Scheme",
+        "📝 Generate Visual Marking Scheme",
         type="primary"
     ):
 
         with st.spinner(
-            "Analysing every page visually and "
-            "building the marking scheme..."
+            "Mwalimu AI is visually inspecting every "
+            "page, diagram, graph, formula and question..."
         ):
 
             try:
 
-                scheme = analyse_visual_pages(
+                scheme = analyse_paper(
                     data=data,
                     filename=uploaded.name,
                     subject=subject,
@@ -1134,68 +971,71 @@ if uploaded:
             except Exception as e:
 
                 st.error(
-                    "Unable to generate marking scheme: "
-                    f"{e}"
+                    f"Unable to generate marking scheme: {e}"
                 )
 
 
+# ============================================================
+# DISPLAY RESULTS
+# ============================================================
+
+if st.session_state.get("scheme"):
+
+    scheme = st.session_state["scheme"]
+
+    st.divider()
+
+    st.subheader(
+        "📝 Generated Marking Scheme"
+    )
+
+    st.caption(
+        "The original question paper remains above. "
+        "The answers and workings below are generated "
+        "from both the extracted text and the actual "
+        "visual pages."
+    )
+
+    st.markdown(
+        clean_scheme(scheme)
+    )
+
     # --------------------------------------------------------
-    # DISPLAY RESULT
+    # VISUAL AUDIT
     # --------------------------------------------------------
 
-    if st.session_state.get(
-        "scheme"
-    ):
+    visual_audit(scheme)
 
-        scheme = st.session_state[
-            "scheme"
-        ]
+    # --------------------------------------------------------
+    # COMPLETENESS
+    # --------------------------------------------------------
 
-        st.divider()
+    completeness = extract_completeness(
+        scheme
+    )
+
+    if completeness:
 
         st.subheader(
-            "📝 Answers / Marking Scheme"
+            "✅ Completeness Audit"
         )
 
-        st.caption(
-            "The original question paper is shown above. "
-            "The material below contains the answers, "
-            "working and marking information corresponding "
-            "to those original questions."
+        st.info(
+            completeness
         )
 
+    # --------------------------------------------------------
+    # FORMULAS
+    # --------------------------------------------------------
 
-        # Main answer scheme
+    formula_workspace(
+        scheme
+    )
 
-        main = main_scheme(
-            scheme
-        )
+    # --------------------------------------------------------
+    # GEOGEBRA
+    # --------------------------------------------------------
 
-        if main:
+    st.divider()
 
-            st.markdown(
-                main
-            )
-
-
-        # Specialist visual/formula/GeoGebra information
-
-        specialist(
-            scheme
-        )
-
-
-        # FormulAI workspace
-
-        st.divider()
-
-        formula_workspace(
-            scheme
-        )
-
-
-        # GeoGebra
-
-        st.divider()
-
-        geogebra()
+    geogebra_workspace()
