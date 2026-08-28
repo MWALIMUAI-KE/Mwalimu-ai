@@ -3,32 +3,33 @@ import io
 import re
 import json
 import base64
-import html
 from typing import List, Dict, Any
 
 import streamlit as st
 import fitz  # PyMuPDF
+from PIL import Image
 from openai import OpenAI
 
+
 # ============================================================
-# MWALIMU AI — MVP3 VISUAL MARKING ENGINE
+# MWALIMU AI — MVP3.1 VISUAL MARKING ENGINE
 # ============================================================
 #
-# CORE PRINCIPLE:
+# GOLDEN MVP3 PRINCIPLE:
 # The uploaded PDF is the visual source of truth.
 #
-# We DO NOT reconstruct the original question for display.
-# We render the original PDF pages and show those pages directly.
+# The original PDF pages are rendered and displayed directly.
+# AI never reconstructs the original examination paper.
 #
-# AI is used to:
-#   1. read/analyse the page
-#   2. identify questions
-#   3. identify diagrams/figures
-#   4. solve questions
-#   5. generate marking points
+# MVP3.1 — SINGLE CONTROLLED CHANGE:
+# Each detected question now receives a visual bounding box.
+# The original question image is cropped from the original
+# rendered page and displayed immediately before its own
+# AI working / answer / marking scheme.
 #
-# The original visual content remains untouched.
+# EVERYTHING ELSE REMAINS AS IN MVP3.
 # ============================================================
+
 
 st.set_page_config(
     page_title="Mwalimu AI — Visual Marking",
@@ -42,6 +43,7 @@ st.caption(
     "AI workings and marking scheme added underneath."
 )
 
+
 # ------------------------------------------------------------
 # CONFIGURATION
 # ------------------------------------------------------------
@@ -50,6 +52,7 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
 MAX_PAGE_DIMENSION = 1800
 JPEG_QUALITY = 88
+
 
 # ------------------------------------------------------------
 # OPENAI CLIENT
@@ -74,6 +77,7 @@ if not api_key:
 
 client = OpenAI(api_key=api_key)
 
+
 # ------------------------------------------------------------
 # SESSION STATE
 # ------------------------------------------------------------
@@ -87,6 +91,7 @@ if "page_images" not in st.session_state:
 if "paper_name" not in st.session_state:
     st.session_state.paper_name = ""
 
+
 # ------------------------------------------------------------
 # PDF → PAGE IMAGES
 # ------------------------------------------------------------
@@ -96,23 +101,35 @@ def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
     Render every original PDF page to a high-resolution JPEG.
 
     The rendered image is the visual source of truth for the
-    displayed question. Nothing is reconstructed.
+    displayed examination paper.
+
+    Nothing is reconstructed.
     """
 
     pages = []
 
-    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    document = fitz.open(
+        stream=pdf_bytes,
+        filetype="pdf"
+    )
 
     for page in document:
+
         rect = page.rect
 
         # Render at approximately 1800px on the longest side.
-        scale = MAX_PAGE_DIMENSION / max(rect.width, rect.height)
+        scale = MAX_PAGE_DIMENSION / max(
+            rect.width,
+            rect.height
+        )
 
-        # Prevent unnecessary enlargement of already-large pages.
+        # Prevent unnecessary enlargement.
         scale = min(scale, 2.5)
 
-        matrix = fitz.Matrix(scale, scale)
+        matrix = fitz.Matrix(
+            scale,
+            scale
+        )
 
         pix = page.get_pixmap(
             matrix=matrix,
@@ -135,26 +152,34 @@ def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
 # OPTIONAL TEXT EXTRACTION
 # ------------------------------------------------------------
 
-def extract_page_texts(pdf_bytes: bytes) -> List[str]:
+def extract_page_texts(
+    pdf_bytes: bytes
+) -> List[str]:
     """
     Extract text only for supporting AI reasoning.
 
     IMPORTANT:
-    This text is NEVER used as the displayed version of the
-    original question.
+    This text is NEVER used as the displayed version
+    of the original question.
     """
 
     texts = []
 
-    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    document = fitz.open(
+        stream=pdf_bytes,
+        filetype="pdf"
+    )
 
     for page in document:
+
         try:
             text = page.get_text("text")
         except Exception:
             text = ""
 
-        texts.append(text.strip())
+        texts.append(
+            text.strip()
+        )
 
     document.close()
 
@@ -165,9 +190,18 @@ def extract_page_texts(pdf_bytes: bytes) -> List[str]:
 # IMAGE → DATA URL
 # ------------------------------------------------------------
 
-def image_to_data_url(image_bytes: bytes) -> str:
-    encoded = base64.b64encode(image_bytes).decode("utf-8")
-    return f"data:image/jpeg;base64,{encoded}"
+def image_to_data_url(
+    image_bytes: bytes
+) -> str:
+
+    encoded = base64.b64encode(
+        image_bytes
+    ).decode("utf-8")
+
+    return (
+        "data:image/jpeg;base64,"
+        + encoded
+    )
 
 
 # ------------------------------------------------------------
@@ -177,8 +211,8 @@ def image_to_data_url(image_bytes: bytes) -> str:
 PAGE_ANALYSIS_PROMPT = """
 You are the visual analysis engine for Mwalimu AI.
 
-You are analysing an ORIGINAL Kenyan secondary-school mathematics
-examination paper page.
+You are analysing an ORIGINAL Kenyan secondary-school
+mathematics examination paper page.
 
 CRITICAL RULE:
 
@@ -188,37 +222,71 @@ DO NOT invent, redraw, simplify or replace diagrams.
 
 Your task is to identify what is actually visible on the page.
 
+In addition to identifying each question, identify the approximate
+bounding box of each question on the supplied page image.
+
+The bounding box must cover the COMPLETE visible question,
+including its text, mathematical expressions, diagrams, tables,
+graphs, constructions and answer choices where applicable.
+
+Use pixel coordinates relative to the supplied image:
+
+x = horizontal position from the left
+y = vertical position from the top
+width = width of the box
+height = height of the box
+
 Return JSON only.
 
 Required JSON structure:
 
 {
   "page_number": integer,
+  "image_width": integer,
+  "image_height": integer,
   "questions": [
     {
       "number": "question number",
       "visible_text_summary": "faithful summary of what is visible",
+
+      "bbox": {
+        "x": integer,
+        "y": integer,
+        "width": integer,
+        "height": integer
+      },
+
       "has_diagram": true/false,
       "diagram_description": "describe the actual visible diagram, if any",
       "has_graph": true/false,
       "has_table": true/false,
       "has_construction": true/false,
       "has_special_math_notation": true/false,
+
       "important_visual_features": [
         "list important visible features"
       ]
     }
   ],
+
   "visual_warnings": [
     "anything that is difficult to read or visually ambiguous"
   ]
 }
 
-Do not solve the questions here.
+IMPORTANT BOUNDING-BOX RULES:
 
-Do not manufacture missing information.
-
-If a diagram is present, explicitly say so.
+1. Coordinates must refer to the supplied page image.
+2. Do not invent coordinates for questions that are not visible.
+3. Include all visible parts of a question in its bounding box.
+4. Include diagrams belonging to the question.
+5. Include tables, graphs and constructions belonging to the question.
+6. If two questions are very close together, leave a small amount
+   of surrounding context rather than cutting off mathematical
+   information.
+7. Do not solve the questions here.
+8. Do not manufacture missing information.
+9. If a diagram is present, explicitly say so.
 """
 
 
@@ -277,11 +345,9 @@ Return JSON only:
 # SAFE JSON PARSER
 # ------------------------------------------------------------
 
-def parse_json_response(text: str) -> Dict[str, Any]:
-    """
-    Extract JSON even if the model accidentally surrounds it
-    with markdown fences.
-    """
+def parse_json_response(
+    text: str
+) -> Dict[str, Any]:
 
     if not text:
         return {}
@@ -306,17 +372,183 @@ def parse_json_response(text: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Attempt to find the first JSON object.
     start = text.find("{")
     end = text.rfind("}")
 
     if start >= 0 and end > start:
+
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(
+                text[start:end + 1]
+            )
         except Exception:
             return {}
 
     return {}
+
+
+# ------------------------------------------------------------
+# NORMALISE BOUNDING BOX
+# ------------------------------------------------------------
+
+def normalise_bbox(
+    bbox: Any,
+    image_width: int,
+    image_height: int
+) -> Dict[str, int] | None:
+    """
+    Safely constrain an AI-produced bounding box to the
+    actual image dimensions.
+
+    This function never changes the original page.
+    It only controls which portion is displayed as the
+    question crop.
+    """
+
+    if not isinstance(bbox, dict):
+        return None
+
+    try:
+        x = int(bbox.get("x", 0))
+        y = int(bbox.get("y", 0))
+        width = int(bbox.get("width", 0))
+        height = int(bbox.get("height", 0))
+    except Exception:
+        return None
+
+    if image_width <= 0 or image_height <= 0:
+        return None
+
+    # Reject clearly invalid boxes.
+    if width <= 5 or height <= 5:
+        return None
+
+    # Clamp starting coordinates.
+    x = max(
+        0,
+        min(x, image_width - 1)
+    )
+
+    y = max(
+        0,
+        min(y, image_height - 1)
+    )
+
+    # Clamp dimensions.
+    width = min(
+        width,
+        image_width - x
+    )
+
+    height = min(
+        height,
+        image_height - y
+    )
+
+    if width <= 5 or height <= 5:
+        return None
+
+    return {
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height
+    }
+
+
+# ------------------------------------------------------------
+# CROP ORIGINAL QUESTION
+# ------------------------------------------------------------
+
+def crop_original_question(
+    image_bytes: bytes,
+    bbox: Dict[str, int]
+) -> bytes | None:
+    """
+    Crop the question directly from the ORIGINAL rendered page.
+
+    This is not OCR reconstruction.
+
+    The pixels displayed here originate from the original
+    examination page image.
+    """
+
+    try:
+
+        image = Image.open(
+            io.BytesIO(image_bytes)
+        )
+
+        image = image.convert("RGB")
+
+        image_width, image_height = image.size
+
+        safe_bbox = normalise_bbox(
+            bbox,
+            image_width,
+            image_height
+        )
+
+        if not safe_bbox:
+            return None
+
+        x = safe_bbox["x"]
+        y = safe_bbox["y"]
+        width = safe_bbox["width"]
+        height = safe_bbox["height"]
+
+        # Add a small visual margin around the original question.
+        margin_x = max(
+            12,
+            int(width * 0.015)
+        )
+
+        margin_y = max(
+            12,
+            int(height * 0.015)
+        )
+
+        left = max(
+            0,
+            x - margin_x
+        )
+
+        top = max(
+            0,
+            y - margin_y
+        )
+
+        right = min(
+            image_width,
+            x + width + margin_x
+        )
+
+        bottom = min(
+            image_height,
+            y + height + margin_y
+        )
+
+        cropped = image.crop(
+            (
+                left,
+                top,
+                right,
+                bottom
+            )
+        )
+
+        output = io.BytesIO()
+
+        cropped.save(
+            output,
+            format="JPEG",
+            quality=JPEG_QUALITY
+        )
+
+        return output.getvalue()
+
+    except Exception:
+        return None
 
 
 # ------------------------------------------------------------
@@ -329,7 +561,9 @@ def analyse_page(
     extracted_text: str
 ) -> Dict[str, Any]:
 
-    image_url = image_to_data_url(image_bytes)
+    image_url = image_to_data_url(
+        image_bytes
+    )
 
     supporting_text = extracted_text[:12000]
 
@@ -360,7 +594,11 @@ def analyse_page(
         ]
     )
 
-    return parse_json_response(response.output_text)
+    result = parse_json_response(
+        response.output_text
+    )
+
+    return result
 
 
 # ------------------------------------------------------------
@@ -376,15 +614,15 @@ def solve_question(
     extracted_text: str
 ) -> Dict[str, Any]:
 
-    image_url = image_to_data_url(image_bytes)
+    image_url = image_to_data_url(
+        image_bytes
+    )
 
     prompt = SOLUTION_PROMPT + f"""
 
-PAGE NUMBER:
-{page_number}
+PAGE NUMBER: {page_number}
 
-QUESTION NUMBER:
-{question_number}
+QUESTION NUMBER: {question_number}
 
 QUESTION SUMMARY:
 {question_summary}
@@ -396,7 +634,9 @@ EXTRACTED TEXT FROM THE ORIGINAL PDF:
 {extracted_text[:16000]}
 
 Remember:
+
 The displayed original page is authoritative.
+
 Use the image to verify the mathematics before solving.
 """
 
@@ -420,9 +660,12 @@ Use the image to verify the mathematics before solving.
         ]
     )
 
-    result = parse_json_response(response.output_text)
+    result = parse_json_response(
+        response.output_text
+    )
 
     if not result:
+
         return {
             "question_number": question_number,
             "method": "",
@@ -432,7 +675,9 @@ Use the image to verify the mathematics before solving.
             "visual_dependency": "unknown",
             "visual_check": "",
             "confidence": "low",
-            "warning": "Model response could not be parsed as JSON."
+            "warning": (
+                "Model response could not be parsed as JSON."
+            )
         }
 
     return result
@@ -442,13 +687,25 @@ Use the image to verify the mathematics before solving.
 # VISUAL COMPLETENESS CHECK
 # ------------------------------------------------------------
 
-def completeness_check(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+def completeness_check(
+    results: List[Dict[str, Any]]
+) -> Dict[str, Any]:
 
     expected = []
 
     for page_result in results:
-        for question in page_result.get("questions", []):
-            number = str(question.get("number", "")).strip()
+
+        for question in page_result.get(
+            "questions",
+            []
+        ):
+
+            number = str(
+                question.get(
+                    "number",
+                    ""
+                )
+            ).strip()
 
             if number:
                 expected.append(number)
@@ -456,9 +713,17 @@ def completeness_check(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     solved = []
 
     for page_result in results:
-        for solution in page_result.get("solutions", []):
+
+        for solution in page_result.get(
+            "solutions",
+            []
+        ):
+
             number = str(
-                solution.get("question_number", "")
+                solution.get(
+                    "question_number",
+                    ""
+                )
             ).strip()
 
             if number:
@@ -470,14 +735,24 @@ def completeness_check(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     missing = sorted(
         expected_set - solved_set,
         key=lambda x: (
-            int(re.sub(r"\D", "", x) or 999),
+            int(
+                re.sub(
+                    r"\D",
+                    "",
+                    x
+                ) or 999
+            ),
             x
         )
     )
 
     return {
-        "questions_detected": len(expected_set),
-        "questions_solved": len(solved_set),
+        "questions_detected": len(
+            expected_set
+        ),
+        "questions_solved": len(
+            solved_set
+        ),
         "missing_questions": missing,
         "complete": len(missing) == 0
     }
@@ -494,75 +769,196 @@ def display_original_page(
 
     st.image(
         image_bytes,
-        caption=f"Original examination page {page_number}",
+        caption=(
+            f"Original examination page "
+            f"{page_number}"
+        ),
         width="stretch"
     )
 
     st.caption(
-        "🔒 Original page preserved — this image is not reconstructed "
-        "from AI-generated text."
+        "🔒 Original page preserved — this image is not "
+        "reconstructed from AI-generated text."
     )
 
 
 # ------------------------------------------------------------
-# DISPLAY SOLUTION
+# DISPLAY QUESTION + SOLUTION
 # ------------------------------------------------------------
 
-def display_solution(solution: Dict[str, Any]):
+def display_question_with_solution(
+    image_bytes: bytes,
+    question: Dict[str, Any],
+    solution: Dict[str, Any]
+):
+    """
+    DISPLAY-ONLY CHANGE FOR MVP3.1.
 
-    question_number = solution.get(
-        "question_number",
-        "Unknown"
+    The question image is cropped directly from the original
+    rendered page.
+
+    No OCR text is used to recreate the question.
+    """
+
+    question_number = str(
+        question.get(
+            "number",
+            solution.get(
+                "question_number",
+                "Unknown"
+            )
+        )
     )
 
     st.markdown(
-        f"### ✏️ Question {question_number} — AI Marking Scheme"
+        f"### 📌 Question {question_number}"
     )
 
-    confidence = solution.get("confidence", "")
+    bbox = question.get(
+        "bbox"
+    )
+
+    question_crop = None
+
+    if bbox:
+        question_crop = crop_original_question(
+            image_bytes,
+            bbox
+        )
+
+    if question_crop:
+
+        st.image(
+            question_crop,
+            caption=(
+                f"Original Question "
+                f"{question_number}"
+            ),
+            width="stretch"
+        )
+
+        st.caption(
+            "🔒 Original question image preserved — "
+            "cropped directly from the scanned page."
+        )
+
+    else:
+
+        st.warning(
+            "The original question region could not be "
+            "isolated reliably. The full original page above "
+            "remains the authoritative source."
+        )
+
+    # --------------------------------------------------------
+    # AI SOLUTION
+    # --------------------------------------------------------
+
+    st.markdown(
+        f"#### ✏️ Question {question_number} — "
+        "AI Marking Scheme"
+    )
+
+    confidence = solution.get(
+        "confidence",
+        ""
+    )
 
     if confidence:
+
         if confidence == "high":
-            st.success(f"Confidence: {confidence}")
+
+            st.success(
+                f"Confidence: {confidence}"
+            )
+
         elif confidence == "medium":
-            st.warning(f"Confidence: {confidence}")
+
+            st.warning(
+                f"Confidence: {confidence}"
+            )
+
         else:
-            st.error(f"Confidence: {confidence}")
+
+            st.error(
+                f"Confidence: {confidence}"
+            )
 
     visual_dependency = solution.get(
         "visual_dependency",
         "none"
     )
 
-    if visual_dependency in ("medium", "high"):
+    if visual_dependency in (
+        "medium",
+        "high"
+    ):
+
         st.info(
-            f"👁️ Visual dependency: **{visual_dependency}**\n\n"
-            + solution.get("visual_check", "")
+            f"👁️ Visual dependency: "
+            f"**{visual_dependency}**\n\n"
+            + solution.get(
+                "visual_check",
+                ""
+            )
         )
 
-    method = solution.get("method")
+    method = solution.get(
+        "method"
+    )
 
     if method:
-        st.markdown("**Method**")
-        st.write(method)
 
-    st.markdown("**Working**")
+        st.markdown(
+            "**Method**"
+        )
 
-    working = solution.get("working", [])
+        st.write(
+            method
+        )
 
-    if isinstance(working, list):
-        for index, step in enumerate(working, start=1):
+    st.markdown(
+        "**Working**"
+    )
+
+    working = solution.get(
+        "working",
+        []
+    )
+
+    if isinstance(
+        working,
+        list
+    ):
+
+        for index, step in enumerate(
+            working,
+            start=1
+        ):
+
             st.markdown(
                 f"**{index}.** {step}"
             )
-    else:
-        st.write(working)
 
-    final_answer = solution.get("final_answer")
+    else:
+
+        st.write(
+            working
+        )
+
+    final_answer = solution.get(
+        "final_answer"
+    )
 
     if final_answer:
-        st.markdown("**Final Answer**")
-        st.success(str(final_answer))
+
+        st.markdown(
+            "**Final Answer**"
+        )
+
+        st.success(
+            str(final_answer)
+        )
 
     marking = solution.get(
         "marking_scheme",
@@ -570,22 +966,37 @@ def display_solution(solution: Dict[str, Any]):
     )
 
     if marking:
-        st.markdown("**Mark Allocation**")
+
+        st.markdown(
+            "**Mark Allocation**"
+        )
 
         for item in marking:
 
-            marks = item.get("marks", "")
-            point = item.get("point", "")
-
-            st.markdown(
-                f"- **{marks} mark(s):** {point}"
+            marks = item.get(
+                "marks",
+                ""
             )
 
-    warning = solution.get("warning")
+            point = item.get(
+                "point",
+                ""
+            )
+
+            st.markdown(
+                f"- **{marks} mark(s):** "
+                f"{point}"
+            )
+
+    warning = solution.get(
+        "warning"
+    )
 
     if warning:
+
         st.warning(
-            f"⚠️ Examiner/AI warning: {warning}"
+            f"⚠️ Examiner/AI warning: "
+            f"{warning}"
         )
 
 
@@ -597,10 +1008,11 @@ uploaded = st.file_uploader(
     "Upload the original examination paper",
     type=["pdf"],
     help=(
-        "Upload the original PDF. Mwalimu AI will preserve its "
-        "visual appearance and analyse the pages directly."
+        "Upload the original PDF. Mwalimu AI will preserve "
+        "its visual appearance and analyse the pages directly."
     )
 )
+
 
 if uploaded:
 
@@ -617,8 +1029,12 @@ if uploaded:
     ):
 
         st.session_state.analysis_results = []
+
         st.session_state.page_images = []
-        st.session_state.paper_name = uploaded.name
+
+        st.session_state.paper_name = (
+            uploaded.name
+        )
 
         # ----------------------------------------------------
         # STEP 1 — RENDER ORIGINAL PDF
@@ -627,7 +1043,9 @@ if uploaded:
         with st.spinner(
             "Rendering the original PDF pages..."
         ):
+
             try:
+
                 page_images = render_pdf_pages(
                     pdf_bytes
                 )
@@ -637,13 +1055,20 @@ if uploaded:
                 )
 
             except Exception as exc:
+
                 st.error(
                     "Could not read the PDF."
                 )
-                st.exception(exc)
+
+                st.exception(
+                    exc
+                )
+
                 st.stop()
 
-        st.session_state.page_images = page_images
+        st.session_state.page_images = (
+            page_images
+        )
 
         st.success(
             f"Rendered {len(page_images)} original pages."
@@ -653,20 +1078,26 @@ if uploaded:
         # STEP 2 — VISUAL ANALYSIS
         # ----------------------------------------------------
 
-        progress = st.progress(0)
+        progress = st.progress(
+            0
+        )
 
         all_results = []
 
-        for index, image_bytes in enumerate(page_images):
+        for index, image_bytes in enumerate(
+            page_images
+        ):
 
             page_number = index + 1
 
             with st.status(
-                f"Visually analysing page {page_number}...",
+                f"Visually analysing page "
+                f"{page_number}...",
                 expanded=False
             ):
 
                 try:
+
                     page_analysis = analyse_page(
                         image_bytes=image_bytes,
                         page_number=page_number,
@@ -700,7 +1131,9 @@ if uploaded:
             # STEP 3 — SOLVE QUESTIONS ON THIS PAGE
             # ------------------------------------------------
 
-            questions = page_result["questions"]
+            questions = page_result[
+                "questions"
+            ]
 
             for question in questions:
 
@@ -715,7 +1148,8 @@ if uploaded:
                     continue
 
                 with st.status(
-                    f"Solving Question {question_number}...",
+                    f"Solving Question "
+                    f"{question_number}...",
                     expanded=False
                 ):
 
@@ -752,20 +1186,29 @@ if uploaded:
                             "warning": str(exc)
                         }
 
-                page_result["solutions"].append(
+                page_result[
+                    "solutions"
+                ].append(
                     solution
                 )
 
-            all_results.append(page_result)
+            all_results.append(
+                page_result
+            )
 
             progress.progress(
                 int(
-                    ((index + 1) / len(page_images))
+                    (
+                        (index + 1)
+                        / len(page_images)
+                    )
                     * 100
                 )
             )
 
-        st.session_state.analysis_results = all_results
+        st.session_state.analysis_results = (
+            all_results
+        )
 
         st.success(
             "Visual scan and marking-scheme generation completed."
@@ -778,52 +1221,80 @@ if uploaded:
 
 results = st.session_state.analysis_results
 
+
 if results:
 
     st.divider()
 
-    st.header("📄 Original Paper + Marking Scheme")
+    st.header(
+        "📄 Original Paper + Question-by-Question "
+        "Marking Scheme"
+    )
 
     st.info(
-        "The pages below are the actual original paper pages. "
-        "Mwalimu AI does not redraw the questions. "
-        "The generated working is displayed underneath."
+        "The original paper pages below are the actual "
+        "scanned pages. Mwalimu AI does not redraw the "
+        "questions. Each question is taken directly from "
+        "the original page and its generated working is "
+        "shown immediately underneath."
     )
 
     # --------------------------------------------------------
     # COMPLETENESS
     # --------------------------------------------------------
 
-    check = completeness_check(results)
+    check = completeness_check(
+        results
+    )
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns(
+        3
+    )
 
     with col1:
+
         st.metric(
             "Questions detected",
-            check["questions_detected"]
+            check[
+                "questions_detected"
+            ]
         )
 
     with col2:
+
         st.metric(
             "Questions solved",
-            check["questions_solved"]
+            check[
+                "questions_solved"
+            ]
         )
 
     with col3:
+
         st.metric(
             "Missing",
-            len(check["missing_questions"])
+            len(
+                check[
+                    "missing_questions"
+                ]
+            )
         )
 
-    if check["missing_questions"]:
+    if check[
+        "missing_questions"
+    ]:
+
         st.warning(
             "Questions not yet solved: "
             + ", ".join(
-                check["missing_questions"]
+                check[
+                    "missing_questions"
+                ]
             )
         )
+
     else:
+
         st.success(
             "✅ Completeness check passed: "
             "all detected questions have a solution."
@@ -835,7 +1306,9 @@ if results:
 
     for page_result in results:
 
-        page_number = page_result["page_number"]
+        page_number = page_result[
+            "page_number"
+        ]
 
         st.divider()
 
@@ -843,20 +1316,32 @@ if results:
             f"📄 Page {page_number}"
         )
 
-        # ORIGINAL PAGE FIRST
+        # ----------------------------------------------------
+        # ORIGINAL FULL PAGE FIRST
+        # ----------------------------------------------------
+
         if (
-            page_number <=
-            len(st.session_state.page_images)
+            page_number
+            <= len(
+                st.session_state.page_images
+            )
         ):
 
-            display_original_page(
+            original_page = (
                 st.session_state.page_images[
                     page_number - 1
-                ],
+                ]
+            )
+
+            display_original_page(
+                original_page,
                 page_number
             )
 
+        # ----------------------------------------------------
         # VISUAL WARNINGS
+        # ----------------------------------------------------
+
         warnings = page_result.get(
             "visual_warnings",
             []
@@ -869,26 +1354,93 @@ if results:
             ):
 
                 for warning in warnings:
-                    st.warning(warning)
 
-        # SOLUTIONS UNDER ORIGINAL PAGE
+                    st.warning(
+                        warning
+                    )
+
+        # ----------------------------------------------------
+        # QUESTION-BY-QUESTION OUTPUT
+        # ----------------------------------------------------
+
+        questions = page_result.get(
+            "questions",
+            []
+        )
+
         solutions = page_result.get(
             "solutions",
             []
         )
 
-        if solutions:
+        # Match solutions to their original question
+        # rather than relying blindly on list position.
 
-            for solution in solutions:
+        solution_map = {}
 
-                display_solution(
-                    solution
+        for solution in solutions:
+
+            number = str(
+                solution.get(
+                    "question_number",
+                    ""
+                )
+            ).strip()
+
+            if number:
+
+                solution_map[
+                    number
+                ] = solution
+
+        if questions:
+
+            for question in questions:
+
+                number = str(
+                    question.get(
+                        "number",
+                        ""
+                    )
+                ).strip()
+
+                if not number:
+                    continue
+
+                solution = solution_map.get(
+                    number
+                )
+
+                if solution is None:
+
+                    solution = {
+                        "question_number":
+                            number,
+                        "method": "",
+                        "working": [],
+                        "final_answer": "",
+                        "marking_scheme": [],
+                        "visual_dependency":
+                            "unknown",
+                        "visual_check": "",
+                        "confidence": "low",
+                        "warning":
+                            "No solution was generated."
+                    }
+
+                st.divider()
+
+                display_question_with_solution(
+                    image_bytes=original_page,
+                    question=question,
+                    solution=solution
                 )
 
         else:
 
             st.caption(
-                "No numbered questions were detected on this page."
+                "No numbered questions were detected "
+                "on this page."
             )
 
     # --------------------------------------------------------
@@ -928,7 +1480,9 @@ if results:
 
         st.success(
             "Diagram/figure questions detected: "
-            + ", ".join(diagram_questions)
+            + ", ".join(
+                diagram_questions
+            )
         )
 
     else:
@@ -951,10 +1505,13 @@ if results:
     st.download_button(
         "⬇️ Download AI analysis (JSON)",
         data=json_output,
-        file_name="mwalimu_ai_visual_marking_analysis.json",
+        file_name=(
+            "mwalimu_ai_visual_marking_analysis.json"
+        ),
         mime="application/json",
         use_container_width=True
     )
+
 
 else:
 
@@ -972,7 +1529,8 @@ else:
 
         **5. AI generates the mathematical working**
 
-        **6. Working and marking points appear underneath**
+        **6. Each original question is shown with its
+        working immediately underneath**
 
         This is deliberately different from an OCR-only pipeline.
         """
