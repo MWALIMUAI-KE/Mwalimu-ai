@@ -12,7 +12,7 @@ from openai import OpenAI
 
 
 # ============================================================
-# MWALIMU AI — MVP3.1 VISUAL MARKING ENGINE
+# MWALIMU AI — MVP3.2 VISUAL MARKING ENGINE
 # ============================================================
 #
 # GOLDEN MVP3 PRINCIPLE:
@@ -21,13 +21,15 @@ from openai import OpenAI
 # The original PDF pages are rendered and displayed directly.
 # AI never reconstructs the original examination paper.
 #
-# MVP3.1 — SINGLE CONTROLLED CHANGE:
-# Each detected question now receives a visual bounding box.
-# The original question image is cropped from the original
-# rendered page and displayed immediately before its own
-# AI working / answer / marking scheme.
+# CONTROLLED UPGRADE:
+# AI-generated working and answers use native mathematical
+# notation / LaTeX where appropriate.
 #
-# EVERYTHING ELSE REMAINS AS IN MVP3.
+# NO external formula engine.
+# NO GeoGebra.
+# NO Formulai.
+#
+# Original paper remains untouched.
 # ============================================================
 
 
@@ -38,6 +40,7 @@ st.set_page_config(
 )
 
 st.title("🤖 Mwalimu AI")
+
 st.caption(
     "MVP3 Visual Marking Engine — Original question preserved, "
     "AI workings and marking scheme added underneath."
@@ -48,7 +51,10 @@ st.caption(
 # CONFIGURATION
 # ------------------------------------------------------------
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+MODEL = os.getenv(
+    "OPENAI_MODEL",
+    "gpt-5.6-luna"
+)
 
 MAX_PAGE_DIMENSION = 1800
 JPEG_QUALITY = 88
@@ -100,9 +106,7 @@ def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
     """
     Render every original PDF page to a high-resolution JPEG.
 
-    The rendered image is the visual source of truth for the
-    displayed examination paper.
-
+    The rendered image is the visual source of truth.
     Nothing is reconstructed.
     """
 
@@ -117,14 +121,15 @@ def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
 
         rect = page.rect
 
-        # Render at approximately 1800px on the longest side.
         scale = MAX_PAGE_DIMENSION / max(
             rect.width,
             rect.height
         )
 
-        # Prevent unnecessary enlargement.
-        scale = min(scale, 2.5)
+        scale = min(
+            scale,
+            2.5
+        )
 
         matrix = fitz.Matrix(
             scale,
@@ -141,7 +146,9 @@ def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
             jpg_quality=JPEG_QUALITY
         )
 
-        pages.append(image_bytes)
+        pages.append(
+            image_bytes
+        )
 
     document.close()
 
@@ -155,6 +162,7 @@ def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
 def extract_page_texts(
     pdf_bytes: bytes
 ) -> List[str]:
+
     """
     Extract text only for supporting AI reasoning.
 
@@ -208,11 +216,11 @@ def image_to_data_url(
 # PAGE ANALYSIS PROMPT
 # ------------------------------------------------------------
 
-PAGE_ANALYSIS_PROMPT = """
+PAGE_ANALYSIS_PROMPT = r"""
 You are the visual analysis engine for Mwalimu AI.
 
-You are analysing an ORIGINAL Kenyan secondary-school
-mathematics examination paper page.
+You are analysing an ORIGINAL Kenyan secondary-school mathematics
+examination paper page.
 
 CRITICAL RULE:
 
@@ -225,9 +233,19 @@ Your task is to identify what is actually visible on the page.
 In addition to identifying each question, identify the approximate
 bounding box of each question on the supplied page image.
 
-The bounding box must cover the COMPLETE visible question,
-including its text, mathematical expressions, diagrams, tables,
-graphs, constructions and answer choices where applicable.
+The bounding box must cover the COMPLETE visible question, including:
+
+- question text
+- mathematical expressions
+- fractions
+- roots
+- powers
+- indices
+- diagrams
+- tables
+- graphs
+- constructions
+- answer choices where applicable
 
 Use pixel coordinates relative to the supplied image:
 
@@ -278,7 +296,7 @@ IMPORTANT BOUNDING-BOX RULES:
 
 1. Coordinates must refer to the supplied page image.
 2. Do not invent coordinates for questions that are not visible.
-3. Include all visible parts of a question in its bounding box.
+3. Include all visible parts of a question.
 4. Include diagrams belonging to the question.
 5. Include tables, graphs and constructions belonging to the question.
 6. If two questions are very close together, leave a small amount
@@ -294,7 +312,7 @@ IMPORTANT BOUNDING-BOX RULES:
 # QUESTION SOLUTION PROMPT
 # ------------------------------------------------------------
 
-SOLUTION_PROMPT = """
+SOLUTION_PROMPT = r"""
 You are the senior mathematics examiner for Mwalimu AI.
 
 The original examination page is supplied as an image.
@@ -306,36 +324,201 @@ You must solve the question using the actual visible information.
 IMPORTANT:
 
 1. Do NOT recreate the original question.
+
 2. Do NOT omit a diagram from your reasoning.
+
 3. If a diagram is essential, explicitly refer to the labels,
    dimensions, angles, coordinates or other information visible
    in that diagram.
+
 4. Show complete mathematical working.
+
 5. Give a final answer.
+
 6. Give a concise marking scheme.
+
 7. Do not award marks for unsupported invented work.
+
 8. If the image is unclear, say so instead of guessing.
+
+============================================================
+MATHEMATICAL NOTATION RULE
+============================================================
+
+All mathematical expressions in the generated WORKING and
+FINAL ANSWER should use proper LaTeX mathematical notation.
+
+Use LaTeX whenever mathematics is being displayed.
+
+Examples:
+
+Fractions:
+\frac{a}{b}
+
+Mixed fractions:
+2\frac{1}{3}
+
+Square roots:
+\sqrt{x}
+
+Cube roots:
+\sqrt[3]{x}
+
+Powers:
+x^2
+x^3
+x^n
+
+Subscripts:
+x_1
+a_n
+
+Plus or minus:
+\pm
+
+Approximately:
+\approx
+
+Greater than or equal:
+\geq
+
+Less than or equal:
+\leq
+
+Not equal:
+\neq
+
+Multiplication:
+\times
+
+Division:
+\div
+
+Angles:
+30^\circ
+
+Pi:
+\pi
+
+Infinity:
+\infty
+
+Summation:
+\sum
+
+Integral:
+\int
+
+Differentiation:
+\frac{dy}{dx}
+
+Integration:
+\int f(x)\,dx
+
+Logarithms:
+\log_2 x
+\ln x
+
+Trigonometry:
+\sin\theta
+\cos\theta
+\tan\theta
+
+Vectors:
+\vec{AB}
+
+Parallel:
+\parallel
+
+Perpendicular:
+\perp
+
+Therefore:
+\therefore
+
+Similar:
+\sim
+
+Congruent:
+\cong
+
+Simultaneous equations:
+\begin{cases}
+2x+y=5\\
+x-y=1
+\end{cases}
+
+Matrices:
+\begin{pmatrix}
+a & b\\
+c & d
+\end{pmatrix}
+
+Determinants:
+\begin{vmatrix}
+a & b\\
+c & d
+\end{vmatrix}
+
+Quadratic formula:
+x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}
+
+============================================================
+
+When writing a mathematical expression, put it inside LaTeX
+delimiters so the application can render it correctly.
+
+For inline mathematics use:
+
+\( ... \)
+
+For displayed mathematics use:
+
+\[ ... \]
+
+Do NOT use plain-text approximations such as:
+
+x^2/2
+sqrt(x)
+(-b+sqrt(...))/2a
+
+when proper mathematical notation is appropriate.
+
+Use actual LaTeX instead.
+
+Ordinary explanatory sentences should remain ordinary text.
+
+The mathematics must remain mathematically accurate.
 
 Return JSON only:
 
 {
   "question_number": "...",
   "method": "brief description of method",
+
   "working": [
     "step 1",
     "step 2",
     "step 3"
   ],
+
   "final_answer": "...",
+
   "marking_scheme": [
     {
       "marks": integer,
       "point": "what earns the mark"
     }
   ],
+
   "visual_dependency": "none | low | medium | high",
-  "visual_check": "explain what visual information was used",
-  "confidence": "high | medium | low",
+
+  "visual_check":
+    "explain what visual information was used",
+
+  "confidence":
+    "high | medium | low",
+
   "warning": ""
 }
 """
@@ -379,7 +562,9 @@ def parse_json_response(
 
         try:
             return json.loads(
-                text[start:end + 1]
+                text[
+                    start:end + 1
+                ]
             )
         except Exception:
             return {}
@@ -396,45 +581,75 @@ def normalise_bbox(
     image_width: int,
     image_height: int
 ) -> Dict[str, int] | None:
+
     """
     Safely constrain an AI-produced bounding box to the
     actual image dimensions.
 
-    This function never changes the original page.
-    It only controls which portion is displayed as the
-    question crop.
+    This never changes the original page.
     """
 
-    if not isinstance(bbox, dict):
+    if not isinstance(
+        bbox,
+        dict
+    ):
         return None
 
     try:
-        x = int(bbox.get("x", 0))
-        y = int(bbox.get("y", 0))
-        width = int(bbox.get("width", 0))
-        height = int(bbox.get("height", 0))
+
+        x = int(
+            bbox.get(
+                "x",
+                0
+            )
+        )
+
+        y = int(
+            bbox.get(
+                "y",
+                0
+            )
+        )
+
+        width = int(
+            bbox.get(
+                "width",
+                0
+            )
+        )
+
+        height = int(
+            bbox.get(
+                "height",
+                0
+            )
+        )
+
     except Exception:
         return None
 
     if image_width <= 0 or image_height <= 0:
         return None
 
-    # Reject clearly invalid boxes.
     if width <= 5 or height <= 5:
         return None
 
-    # Clamp starting coordinates.
     x = max(
         0,
-        min(x, image_width - 1)
+        min(
+            x,
+            image_width - 1
+        )
     )
 
     y = max(
         0,
-        min(y, image_height - 1)
+        min(
+            y,
+            image_height - 1
+        )
     )
 
-    # Clamp dimensions.
     width = min(
         width,
         image_width - x
@@ -464,6 +679,7 @@ def crop_original_question(
     image_bytes: bytes,
     bbox: Dict[str, int]
 ) -> bytes | None:
+
     """
     Crop the question directly from the ORIGINAL rendered page.
 
@@ -476,10 +692,14 @@ def crop_original_question(
     try:
 
         image = Image.open(
-            io.BytesIO(image_bytes)
+            io.BytesIO(
+                image_bytes
+            )
         )
 
-        image = image.convert("RGB")
+        image = image.convert(
+            "RGB"
+        )
 
         image_width, image_height = image.size
 
@@ -497,7 +717,6 @@ def crop_original_question(
         width = safe_bbox["width"]
         height = safe_bbox["height"]
 
-        # Add a small visual margin around the original question.
         margin_x = max(
             12,
             int(width * 0.015)
@@ -573,6 +792,7 @@ def analyse_page(
             {
                 "role": "user",
                 "content": [
+
                     {
                         "type": "input_text",
                         "text": (
@@ -584,11 +804,13 @@ def analyse_page(
                             + supporting_text
                         )
                     },
+
                     {
                         "type": "input_image",
                         "image_url": image_url,
                         "detail": "high"
                     }
+
                 ]
             }
         ]
@@ -620,9 +842,11 @@ def solve_question(
 
     prompt = SOLUTION_PROMPT + f"""
 
-PAGE NUMBER: {page_number}
+PAGE NUMBER:
+{page_number}
 
-QUESTION NUMBER: {question_number}
+QUESTION NUMBER:
+{question_number}
 
 QUESTION SUMMARY:
 {question_summary}
@@ -638,6 +862,10 @@ Remember:
 The displayed original page is authoritative.
 
 Use the image to verify the mathematics before solving.
+
+Preserve mathematical accuracy.
+
+Use proper LaTeX notation for mathematical expressions.
 """
 
     response = client.responses.create(
@@ -646,15 +874,18 @@ Use the image to verify the mathematics before solving.
             {
                 "role": "user",
                 "content": [
+
                     {
                         "type": "input_text",
                         "text": prompt
                     },
+
                     {
                         "type": "input_image",
                         "image_url": image_url,
                         "detail": "high"
                     }
+
                 ]
             }
         ]
@@ -684,6 +915,57 @@ Use the image to verify the mathematics before solving.
 
 
 # ------------------------------------------------------------
+# MATHEMATICAL TEXT RENDERING
+# ------------------------------------------------------------
+
+def render_math_text(
+    text: Any
+):
+
+    """
+    Render AI-generated text while allowing native LaTeX
+    mathematical notation.
+
+    The original examination paper is NOT processed here.
+    """
+
+    if text is None:
+        return
+
+    text = str(text).strip()
+
+    if not text:
+        return
+
+    # Convert common LaTeX delimiters into Streamlit-friendly
+    # display delimiters where necessary.
+
+    text = text.replace(
+        "\\[",
+        "$$"
+    )
+
+    text = text.replace(
+        "\\]",
+        "$$"
+    )
+
+    text = text.replace(
+        "\\(",
+        "$"
+    )
+
+    text = text.replace(
+        "\\)",
+        "$"
+    )
+
+    st.markdown(
+        text
+    )
+
+
+# ------------------------------------------------------------
 # VISUAL COMPLETENESS CHECK
 # ------------------------------------------------------------
 
@@ -708,7 +990,9 @@ def completeness_check(
             ).strip()
 
             if number:
-                expected.append(number)
+                expected.append(
+                    number
+                )
 
     solved = []
 
@@ -727,10 +1011,17 @@ def completeness_check(
             ).strip()
 
             if number:
-                solved.append(number)
+                solved.append(
+                    number
+                )
 
-    expected_set = set(expected)
-    solved_set = set(solved)
+    expected_set = set(
+        expected
+    )
+
+    solved_set = set(
+        solved
+    )
 
     missing = sorted(
         expected_set - solved_set,
@@ -750,11 +1041,16 @@ def completeness_check(
         "questions_detected": len(
             expected_set
         ),
+
         "questions_solved": len(
             solved_set
         ),
+
         "missing_questions": missing,
-        "complete": len(missing) == 0
+
+        "complete": (
+            len(missing) == 0
+        )
     }
 
 
@@ -791,13 +1087,12 @@ def display_question_with_solution(
     question: Dict[str, Any],
     solution: Dict[str, Any]
 ):
+
     """
-    DISPLAY-ONLY CHANGE FOR MVP3.1.
+    Display the original question crop followed immediately
+    by its AI-generated working, final answer and marking scheme.
 
-    The question image is cropped directly from the original
-    rendered page.
-
-    No OCR text is used to recreate the question.
+    The question image comes directly from the original page.
     """
 
     question_number = str(
@@ -821,6 +1116,7 @@ def display_question_with_solution(
     question_crop = None
 
     if bbox:
+
         question_crop = crop_original_question(
             image_bytes,
             bbox
@@ -913,9 +1209,13 @@ def display_question_with_solution(
             "**Method**"
         )
 
-        st.write(
+        render_math_text(
             method
         )
+
+    # --------------------------------------------------------
+    # WORKING
+    # --------------------------------------------------------
 
     st.markdown(
         "**Working**"
@@ -937,14 +1237,22 @@ def display_question_with_solution(
         ):
 
             st.markdown(
-                f"**{index}.** {step}"
+                f"**{index}.**"
+            )
+
+            render_math_text(
+                step
             )
 
     else:
 
-        st.write(
+        render_math_text(
             working
         )
+
+    # --------------------------------------------------------
+    # FINAL ANSWER
+    # --------------------------------------------------------
 
     final_answer = solution.get(
         "final_answer"
@@ -956,9 +1264,20 @@ def display_question_with_solution(
             "**Final Answer**"
         )
 
+        # Use a bordered success box while still allowing
+        # mathematical notation to render.
+
         st.success(
-            str(final_answer)
+            "Answer generated below."
         )
+
+        render_math_text(
+            final_answer
+        )
+
+    # --------------------------------------------------------
+    # MARKING SCHEME
+    # --------------------------------------------------------
 
     marking = solution.get(
         "marking_scheme",
@@ -984,9 +1303,16 @@ def display_question_with_solution(
             )
 
             st.markdown(
-                f"- **{marks} mark(s):** "
-                f"{point}"
+                f"- **{marks} mark(s):**"
             )
+
+            render_math_text(
+                point
+            )
+
+    # --------------------------------------------------------
+    # WARNING
+    # --------------------------------------------------------
 
     warning = solution.get(
         "warning"
@@ -1115,15 +1441,19 @@ if uploaded:
                     }
 
             page_result = {
+
                 "page_number": page_number,
+
                 "questions": page_analysis.get(
                     "questions",
                     []
                 ),
+
                 "visual_warnings": page_analysis.get(
                     "visual_warnings",
                     []
                 ),
+
                 "solutions": []
             }
 
@@ -1156,34 +1486,51 @@ if uploaded:
                     try:
 
                         solution = solve_question(
+
                             image_bytes=image_bytes,
+
                             page_number=page_number,
+
                             question_number=question_number,
+
                             question_summary=question.get(
                                 "visible_text_summary",
                                 ""
                             ),
+
                             diagram_description=question.get(
                                 "diagram_description",
                                 ""
                             ),
+
                             extracted_text=page_texts[index]
                         )
 
                     except Exception as exc:
 
                         solution = {
+
                             "question_number":
                                 question_number,
+
                             "method": "",
+
                             "working": [],
+
                             "final_answer": "",
+
                             "marking_scheme": [],
+
                             "visual_dependency":
                                 "unknown",
+
                             "visual_check": "",
-                            "confidence": "low",
-                            "warning": str(exc)
+
+                            "confidence":
+                                "low",
+
+                            "warning":
+                                str(exc)
                         }
 
                 page_result[
@@ -1373,9 +1720,6 @@ if results:
             []
         )
 
-        # Match solutions to their original question
-        # rather than relying blindly on list position.
-
         solution_map = {}
 
         for solution in solutions:
@@ -1414,16 +1758,26 @@ if results:
                 if solution is None:
 
                     solution = {
+
                         "question_number":
                             number,
+
                         "method": "",
+
                         "working": [],
+
                         "final_answer": "",
+
                         "marking_scheme": [],
+
                         "visual_dependency":
                             "unknown",
+
                         "visual_check": "",
-                        "confidence": "low",
+
+                        "confidence":
+                            "low",
+
                         "warning":
                             "No solution was generated."
                     }
@@ -1431,8 +1785,11 @@ if results:
                 st.divider()
 
                 display_question_with_solution(
+
                     image_bytes=original_page,
+
                     question=question,
+
                     solution=solution
                 )
 
@@ -1531,6 +1888,9 @@ else:
 
         **6. Each original question is shown with its
         working immediately underneath**
+
+        **7. AI-generated mathematics is rendered using
+        native mathematical notation**
 
         This is deliberately different from an OCR-only pipeline.
         """
