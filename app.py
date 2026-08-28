@@ -1,1311 +1,979 @@
 import os
 import io
 import re
+import json
 import base64
+import html
+from typing import List, Dict, Any
 
 import streamlit as st
-import streamlit.components.v1 as components
-from pypdf import PdfReader
+import fitz  # PyMuPDF
 from openai import OpenAI
 
-
 # ============================================================
-# MWALIMU AI — VISUAL MVP3 UPGRADE
-# BATTLE 1: REAL VISUAL QUESTION UNDERSTANDING
-#
-# MVP3 PRINCIPLE:
-# Original PDF = authoritative source
-# Extracted text = supplementary source
-#
-# NEW:
-# PASS 1 = visual evidence scan
-# PASS 2 = marking scheme using visual evidence + original PDF
+# MWALIMU AI — MVP3 VISUAL MARKING ENGINE
 # ============================================================
-
+#
+# CORE PRINCIPLE:
+# The uploaded PDF is the visual source of truth.
+#
+# We DO NOT reconstruct the original question for display.
+# We render the original PDF pages and show those pages directly.
+#
+# AI is used to:
+#   1. read/analyse the page
+#   2. identify questions
+#   3. identify diagrams/figures
+#   4. solve questions
+#   5. generate marking points
+#
+# The original visual content remains untouched.
+# ============================================================
 
 st.set_page_config(
-    page_title="Mwalimu AI",
+    page_title="Mwalimu AI — Visual Marking",
     page_icon="🤖",
-    layout="wide",
+    layout="wide"
 )
 
 st.title("🤖 Mwalimu AI")
 st.caption(
-    "Teacher AI assistant — Visual MVP3 | "
-    "Two-pass diagram understanding"
+    "MVP3 Visual Marking Engine — Original question preserved, "
+    "AI workings and marking scheme added underneath."
 )
 
+# ------------------------------------------------------------
+# CONFIGURATION
+# ------------------------------------------------------------
 
-# ============================================================
-# OPENAI
-# ============================================================
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
-api_key = os.getenv("OPENAI_API_KEY")
+MAX_PAGE_DIMENSION = 1800
+JPEG_QUALITY = 88
+
+# ------------------------------------------------------------
+# OPENAI CLIENT
+# ------------------------------------------------------------
+
+api_key = None
+
+try:
+    api_key = st.secrets.get("OPENAI_API_KEY")
+except Exception:
+    pass
+
+if not api_key:
+    api_key = os.getenv("OPENAI_API_KEY")
 
 if not api_key:
     st.error(
         "OPENAI_API_KEY is not configured. "
-        "Add it as a deployment secret/environment variable."
+        "Add it to Streamlit Secrets before running the app."
     )
     st.stop()
 
 client = OpenAI(api_key=api_key)
 
-MODEL = os.getenv(
-    "OPENAI_MODEL",
-    "gpt-4.1-mini"
-)
+# ------------------------------------------------------------
+# SESSION STATE
+# ------------------------------------------------------------
 
+if "analysis_results" not in st.session_state:
+    st.session_state.analysis_results = []
 
-# ============================================================
-# PDF HELPERS
-# ============================================================
+if "page_images" not in st.session_state:
+    st.session_state.page_images = []
 
-def get_pdf_bytes(uploaded_file):
+if "paper_name" not in st.session_state:
+    st.session_state.paper_name = ""
+
+# ------------------------------------------------------------
+# PDF → PAGE IMAGES
+# ------------------------------------------------------------
+
+def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
     """
-    Read the uploaded PDF once and preserve the exact bytes.
+    Render every original PDF page to a high-resolution JPEG.
+
+    The rendered image is the visual source of truth for the
+    displayed question. Nothing is reconstructed.
     """
 
-    return uploaded_file.getvalue()
+    pages = []
 
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-def get_page_count(pdf_bytes):
-    try:
-        reader = PdfReader(
-            io.BytesIO(pdf_bytes)
+    for page in document:
+        rect = page.rect
+
+        # Render at approximately 1800px on the longest side.
+        scale = MAX_PAGE_DIMENSION / max(rect.width, rect.height)
+
+        # Prevent unnecessary enlargement of already-large pages.
+        scale = min(scale, 2.5)
+
+        matrix = fitz.Matrix(scale, scale)
+
+        pix = page.get_pixmap(
+            matrix=matrix,
+            alpha=False
         )
-        return len(reader.pages)
 
-    except Exception:
-        return 0
+        image_bytes = pix.tobytes(
+            "jpeg",
+            jpg_quality=JPEG_QUALITY
+        )
+
+        pages.append(image_bytes)
+
+    document.close()
+
+    return pages
 
 
-def extract_pdf_text(pdf_bytes):
+# ------------------------------------------------------------
+# OPTIONAL TEXT EXTRACTION
+# ------------------------------------------------------------
+
+def extract_page_texts(pdf_bytes: bytes) -> List[str]:
     """
-    Extract machine-readable text.
+    Extract text only for supporting AI reasoning.
 
     IMPORTANT:
-    This is supplementary only.
-
-    The original PDF remains authoritative because
-    diagrams and visual information may not appear in
-    extracted text.
+    This text is NEVER used as the displayed version of the
+    original question.
     """
+
+    texts = []
+
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    for page in document:
+        try:
+            text = page.get_text("text")
+        except Exception:
+            text = ""
+
+        texts.append(text.strip())
+
+    document.close()
+
+    return texts
+
+
+# ------------------------------------------------------------
+# IMAGE → DATA URL
+# ------------------------------------------------------------
+
+def image_to_data_url(image_bytes: bytes) -> str:
+    encoded = base64.b64encode(image_bytes).decode("utf-8")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+# ------------------------------------------------------------
+# PAGE ANALYSIS PROMPT
+# ------------------------------------------------------------
+
+PAGE_ANALYSIS_PROMPT = """
+You are the visual analysis engine for Mwalimu AI.
+
+You are analysing an ORIGINAL Kenyan secondary-school mathematics
+examination paper page.
+
+CRITICAL RULE:
+
+The original page image is the authoritative source.
+
+DO NOT invent, redraw, simplify or replace diagrams.
+
+Your task is to identify what is actually visible on the page.
+
+Return JSON only.
+
+Required JSON structure:
+
+{
+  "page_number": integer,
+  "questions": [
+    {
+      "number": "question number",
+      "visible_text_summary": "faithful summary of what is visible",
+      "has_diagram": true/false,
+      "diagram_description": "describe the actual visible diagram, if any",
+      "has_graph": true/false,
+      "has_table": true/false,
+      "has_construction": true/false,
+      "has_special_math_notation": true/false,
+      "important_visual_features": [
+        "list important visible features"
+      ]
+    }
+  ],
+  "visual_warnings": [
+    "anything that is difficult to read or visually ambiguous"
+  ]
+}
+
+Do not solve the questions here.
+
+Do not manufacture missing information.
+
+If a diagram is present, explicitly say so.
+"""
+
+
+# ------------------------------------------------------------
+# QUESTION SOLUTION PROMPT
+# ------------------------------------------------------------
+
+SOLUTION_PROMPT = """
+You are the senior mathematics examiner for Mwalimu AI.
+
+The original examination page is supplied as an image.
+
+The image is authoritative.
+
+You must solve the question using the actual visible information.
+
+IMPORTANT:
+
+1. Do NOT recreate the original question.
+2. Do NOT omit a diagram from your reasoning.
+3. If a diagram is essential, explicitly refer to the labels,
+   dimensions, angles, coordinates or other information visible
+   in that diagram.
+4. Show complete mathematical working.
+5. Give a final answer.
+6. Give a concise marking scheme.
+7. Do not award marks for unsupported invented work.
+8. If the image is unclear, say so instead of guessing.
+
+Return JSON only:
+
+{
+  "question_number": "...",
+  "method": "brief description of method",
+  "working": [
+    "step 1",
+    "step 2",
+    "step 3"
+  ],
+  "final_answer": "...",
+  "marking_scheme": [
+    {
+      "marks": integer,
+      "point": "what earns the mark"
+    }
+  ],
+  "visual_dependency": "none | low | medium | high",
+  "visual_check": "explain what visual information was used",
+  "confidence": "high | medium | low",
+  "warning": ""
+}
+"""
+
+
+# ------------------------------------------------------------
+# SAFE JSON PARSER
+# ------------------------------------------------------------
+
+def parse_json_response(text: str) -> Dict[str, Any]:
+    """
+    Extract JSON even if the model accidentally surrounds it
+    with markdown fences.
+    """
+
+    if not text:
+        return {}
+
+    text = text.strip()
+
+    text = re.sub(
+        r"^```(?:json)?\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    text = re.sub(
+        r"\s*```$",
+        "",
+        text
+    )
 
     try:
-        reader = PdfReader(
-            io.BytesIO(pdf_bytes)
-        )
+        return json.loads(text)
+    except Exception:
+        pass
 
-        pages = []
+    # Attempt to find the first JSON object.
+    start = text.find("{")
+    end = text.rfind("}")
 
-        for page_number, page in enumerate(
-            reader.pages,
-            start=1
-        ):
+    if start >= 0 and end > start:
+        try:
+            return json.loads(text[start:end + 1])
+        except Exception:
+            return {}
 
-            text = page.extract_text() or ""
+    return {}
 
-            pages.append(
-                f"--- PAGE {page_number} ---\n{text}"
-            )
 
-        return "\n\n".join(pages)
+# ------------------------------------------------------------
+# CALL VISION MODEL
+# ------------------------------------------------------------
 
-    except Exception as exc:
+def analyse_page(
+    image_bytes: bytes,
+    page_number: int,
+    extracted_text: str
+) -> Dict[str, Any]:
 
-        return (
-            "[TEXT EXTRACTION ERROR]\n"
-            f"{exc}"
-        )
+    image_url = image_to_data_url(image_bytes)
 
-
-# ============================================================
-# QUESTION INVENTORY
-# ============================================================
-
-def split_question_numbers(text):
-    """
-    Best-effort question-number detection.
-
-    This is NOT authoritative.
-    It is only a completeness aid.
-    """
-
-    patterns = [
-        r"(?im)^\s*(?:question\s*)?"
-        r"(\d{1,2})[.):-]\s+",
-
-        r"(?im)^\s*q\s*"
-        r"(\d{1,2})[.):-]\s+",
-    ]
-
-    found = []
-
-    for pattern in patterns:
-
-        found.extend(
-            re.findall(
-                pattern,
-                text
-            )
-        )
-
-    return list(
-        dict.fromkeys(found)
-    )
-
-
-# ============================================================
-# VISUAL KEYWORDS
-# ============================================================
-
-def visual_keywords(subject):
-
-    common = (
-        "diagram, figure, graph, chart, table, drawing, "
-        "illustration, apparatus, specimen, labelled, "
-        "shown, image, construction, arrow, scale"
-    )
-
-    subject = subject.lower()
-
-    if subject == "mathematics":
-
-        return (
-            common
-            + ", triangle, circle, angle, geometry, "
-              "coordinate plane, shape, transformation, "
-              "curve, straight line, shaded region, "
-              "construction"
-        )
-
-    if subject == "biology":
-
-        return (
-            common
-            + ", biological drawing, specimen, cell, "
-              "organ, tissue, structure, life cycle, "
-              "microscope"
-        )
-
-    if subject == "physics":
-
-        return (
-            common
-            + ", circuit, ray diagram, apparatus, "
-              "force diagram, motion diagram, electrical "
-              "diagram, velocity, vector"
-        )
-
-    if subject == "chemistry":
-
-        return (
-            common
-            + ", laboratory apparatus, setup, molecular "
-              "structure, organic structure, reaction "
-              "diagram"
-        )
-
-    return common
-
-
-# ============================================================
-# PASS 1 — VISUAL EVIDENCE PROMPT
-# ============================================================
-
-def build_visual_audit_prompt(
-    subject,
-    level,
-    extracted_text,
-):
-
-    inventory = split_question_numbers(
-        extracted_text
-    )
-
-    inventory_text = (
-        ", ".join(inventory)
-        if inventory
-        else "Not reliably detected from extracted text."
-    )
-
-    return f"""
-You are Mwalimu AI, a rigorous Kenyan teacher-support
-assistant.
-
-SUBJECT:
-{subject}
-
-LEVEL:
-{level}
-
-PRELIMINARY QUESTION INVENTORY:
-{inventory_text}
-
-VISUAL ELEMENTS TO WATCH FOR:
-{visual_keywords(subject)}
-
-
-============================================================
-MISSION — PASS 1
-============================================================
-
-This is a VISUAL EXAMINATION PAPER.
-
-Your first task is NOT to generate the marking scheme.
-
-Your first task is to VISUALLY INSPECT THE ORIGINAL PDF.
-
-Inspect EVERY PAGE.
-
-The original PDF is the authoritative source.
-
-Extracted text is supplementary only.
-
-
-============================================================
-PAGE-BY-PAGE VISUAL INSPECTION
-============================================================
-
-For every page:
-
-1. Identify all visible questions.
-2. Identify all visible sub-questions.
-3. Identify every diagram.
-4. Identify every graph.
-5. Identify every table.
-6. Identify every construction.
-7. Identify every labelled figure.
-8. Identify arrows and directions.
-9. Identify visible measurements.
-10. Identify angles.
-11. Identify coordinates.
-12. Identify graph axes and values.
-13. Identify shaded regions.
-14. Identify apparatus.
-15. Identify biological structures.
-16. Identify circuit connections.
-17. Identify chemical structures or notation.
-
-
-============================================================
-QUESTION ↔ VISUAL CONNECTION
-============================================================
-
-For every diagram or visual element state:
-
-QUESTION:
-...
-
-SUB-QUESTION:
-...
-
-PAGE:
-...
-
-VISUAL TYPE:
-...
-
-VISIBLE INFORMATION:
-...
-
-HOW THE VISUAL RELATES TO THE QUESTION:
-...
-
-CONFIDENCE:
-HIGH / MEDIUM / LOW
-
-
-============================================================
-DO NOT GUESS
-============================================================
-
-Never invent:
-
-- labels
-- measurements
-- coordinates
-- angles
-- dimensions
-- graph values
-- apparatus
-- biological structures
-- chemical structures
-
-If something is unclear, say exactly what is unclear.
-
-Do not turn an unclear visual into a confident answer.
-
-
-============================================================
-MATHEMATICS
-============================================================
-
-Pay particular attention to:
-
-- geometry
-- diagrams
-- constructions
-- graphs
-- curves
-- coordinates
-- angles
-- lengths
-- perpendicular lines
-- parallel lines
-- transformations
-- shaded regions
-- scale drawings
-
-Do NOT assume a diagram is decorative.
-
-Determine whether it supplies information needed to solve
-the question.
-
-
-============================================================
-PHYSICS
-============================================================
-
-Pay particular attention to:
-
-- circuits
-- apparatus
-- force arrows
-- ray diagrams
-- measurements
-- distances
-- angles
-- directions
-- motion diagrams
-
-
-============================================================
-BIOLOGY
-============================================================
-
-Pay particular attention to:
-
-- biological drawings
-- labels
-- cells
-- tissues
-- organs
-- specimens
-- structures
-- arrows
-- life-cycle diagrams
-
-
-============================================================
-CHEMISTRY
-============================================================
-
-Pay particular attention to:
-
-- laboratory apparatus
-- experimental arrangements
-- chemical structures
-- reaction diagrams
-- labels
-- visible chemical notation
-
-
-============================================================
-OUTPUT
-============================================================
-
-Return a structured VISUAL EVIDENCE MAP.
-
-Use exactly this structure:
-
-[VISUAL EVIDENCE MAP]
-
-PAGE 1
-Visuals detected:
-...
-
-Questions affected:
-...
-
-Important visible information:
-...
-
-PAGE 2
-Visuals detected:
-...
-
-Questions affected:
-...
-
-Important visible information:
-...
-
-Continue for every page.
-
-Then:
-
-[QUESTION VISUAL MAP]
-
-Question 1:
-Visual: YES/NO
-Page:
-Relevant visual information:
-
-Question 2:
-Visual: YES/NO
-Page:
-Relevant visual information:
-
-Continue for every detected question.
-
-Then:
-
-[UNCLEAR VISUALS]
-
-...
-
-[/UNCLEAR VISUALS]
-
-Then:
-
-[VISUAL CONFIDENCE]
-
-Overall:
-...
-
-Questions requiring special visual attention:
-...
-
-[/VISUAL CONFIDENCE]
-
-[/VISUAL EVIDENCE MAP]
-
-
-IMPORTANT:
-
-Do not solve the paper yet.
-
-This pass exists specifically to make sure the visual
-information is not lost before the marking scheme is created.
-"""
-
-
-# ============================================================
-# PASS 1 — RUN VISUAL AUDIT
-# ============================================================
-
-def run_visual_audit(
-    pdf_bytes,
-    filename,
-    subject,
-    level,
-    extracted_text,
-):
-
-    system_prompt = build_visual_audit_prompt(
-        subject,
-        level,
-        extracted_text,
-    )
-
-    encoded_pdf = base64.b64encode(
-        pdf_bytes
-    ).decode("utf-8")
-
-    user_content = [
-
-        {
-            "type": "input_text",
-            "text": (
-                f"FILE: {filename}\n"
-                f"PAGE COUNT: {get_page_count(pdf_bytes)}\n\n"
-                "VISUAL PASS 1.\n"
-                "Inspect the original PDF page by page.\n"
-                "Do not solve the questions yet."
-            ),
-        },
-
-        {
-            "type": "input_file",
-            "filename": filename,
-            "file_data": (
-                "data:application/pdf;base64,"
-                + encoded_pdf
-            ),
-        },
-
-        {
-            "type": "input_text",
-            "text": (
-                "SUPPLEMENTARY EXTRACTED TEXT.\n"
-                "NOT AUTHORITATIVE.\n\n"
-                + extracted_text[:60000]
-            ),
-        },
-    ]
+    supporting_text = extracted_text[:12000]
 
     response = client.responses.create(
-
         model=MODEL,
-
-        temperature=0.1,
-
         input=[
-
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-
             {
                 "role": "user",
-                "content": user_content,
-            },
-        ],
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            PAGE_ANALYSIS_PROMPT
+                            + "\n\nPAGE NUMBER: "
+                            + str(page_number)
+                            + "\n\nOPTIONAL EXTRACTED TEXT "
+                              "(supporting evidence only):\n"
+                            + supporting_text
+                        )
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": image_url,
+                        "detail": "high"
+                    }
+                ]
+            }
+        ]
     )
 
-    return response.output_text
+    return parse_json_response(response.output_text)
 
 
-# ============================================================
-# PASS 2 — MARKING SCHEME PROMPT
-# ============================================================
+# ------------------------------------------------------------
+# SOLVE ONE QUESTION
+# ------------------------------------------------------------
 
-def build_marking_prompt(
-    subject,
-    level,
-    extracted_text,
-    visual_audit,
-):
+def solve_question(
+    image_bytes: bytes,
+    page_number: int,
+    question_number: str,
+    question_summary: str,
+    diagram_description: str,
+    extracted_text: str
+) -> Dict[str, Any]:
 
-    inventory = split_question_numbers(
-        extracted_text
-    )
+    image_url = image_to_data_url(image_bytes)
 
-    inventory_text = (
-        ", ".join(inventory)
-        if inventory
-        else "Not reliably detected."
-    )
+    prompt = SOLUTION_PROMPT + f"""
 
-    return f"""
-You are Mwalimu AI, a rigorous Kenyan teacher-support
-assistant creating a professional marking scheme.
+PAGE NUMBER:
+{page_number}
 
-SUBJECT:
-{subject}
+QUESTION NUMBER:
+{question_number}
 
-LEVEL:
-{level}
+QUESTION SUMMARY:
+{question_summary}
 
-AUTOMATIC TEXT INVENTORY:
-{inventory_text}
+DIAGRAM DESCRIPTION:
+{diagram_description}
 
+EXTRACTED TEXT FROM THE ORIGINAL PDF:
+{extracted_text[:16000]}
 
-============================================================
-PRIMARY SOURCE
-============================================================
-
-The ORIGINAL PDF is the authoritative examination paper.
-
-The visual evidence map is an additional analysis of the
-original PDF.
-
-Extracted text is supplementary only.
-
-If anything conflicts:
-
-1. Original visible PDF
-2. Visual evidence
-3. Extracted text
-
-
-============================================================
-VISUAL EVIDENCE FROM PASS 1
-============================================================
-
-{visual_audit}
-
-
-============================================================
-MISSION — PASS 2
-============================================================
-
-Now generate the COMPLETE marking scheme.
-
-You must process EVERY question.
-
-You must process EVERY sub-question.
-
-Do not silently skip a question.
-
-Do not stop because a question contains a diagram.
-
-Use the visual evidence map to connect diagrams to their
-correct questions.
-
-
-============================================================
-QUESTION-FIRST FORMAT
-============================================================
-
-For every question reproduce enough of the ORIGINAL QUESTION
-TEXT to make the marking scheme traceable.
-
-Then immediately provide:
-
-ANSWER / WORKING
-
-Then:
-
-MARKING POINTS
-
-The basic pattern should be:
-
-QUESTION 1(a)
-[faithful question text]
-
-ANSWER / WORKING:
-...
-
-MARKING:
-- ...
-- ...
-
-QUESTION 1(b)
-[faithful question text]
-
-ANSWER / WORKING:
-...
-
-MARKING:
-- ...
-- ...
-
-
-============================================================
-DIAGRAM QUESTIONS
-============================================================
-
-For a question containing a diagram:
-
-Do NOT invent a replacement diagram.
-
-Do NOT pretend the diagram does not exist.
-
-Explicitly acknowledge it.
-
-For example:
-
-QUESTION 4(b)
-[faithful question text]
-
-VISUAL USED:
-Diagram on page 2.
-
-OBSERVED:
-- ...
-- ...
-- ...
-
-ANSWER / WORKING:
-...
-
-MARKING:
-...
-
-
-If the diagram contains labels, measurements, angles,
-coordinates, arrows or other information required to solve
-the question, use them.
-
-Do not use guessed values.
-
-
-============================================================
-MATHEMATICS WORKING
-============================================================
-
-For calculations:
-
-1. State the formula.
-2. Substitute values.
-3. Show essential working.
-4. Simplify correctly.
-5. Give final answer.
-6. Include units where required.
-
-Use LaTeX for mathematical expressions.
-
-Use:
-
-\\( ... \\)
-
-for inline mathematics.
-
-Use:
-
-\\[
-...
-\\]
-
-for displayed mathematics.
-
-
-============================================================
-GEOMETRY / CONSTRUCTIONS / GRAPHS
-============================================================
-
-If a diagram is required to solve the question:
-
-Use the actual visible diagram.
-
-Identify:
-
-- points
-- lines
-- lengths
-- angles
-- coordinates
-- curves
-- axes
-- scale
-- shaded areas
-- construction relationships
-
-Do not invent missing measurements.
-
-If a construction is required, describe the actual
-construction steps needed for marking.
-
-
-============================================================
-CHEMISTRY
-============================================================
-
-Preserve:
-
-- chemical formulae
-- subscripts
-- charges
-- state symbols
-- balanced equations
-- oxidation states where relevant
-
-Show essential working for mole calculations and
-stoichiometry.
-
-
-============================================================
-BIOLOGY
-============================================================
-
-For labelled diagrams:
-
-- identify only structures supported by the visual
-- use correct terminology
-- associate each label with the actual structure
-- do not invent unreadable labels
-
-
-============================================================
-COMPLETENESS
-============================================================
-
-Before finishing, check:
-
-- every main question processed
-- every sub-question processed
-- every diagram question processed
-- every graph question processed
-- every construction processed
-- every calculation has working
-- every final answer is visible
-- no question silently omitted
-
-
-============================================================
-FINAL AUDIT
-============================================================
-
-Finish with:
-
-[COMPLETENESS CHECK]
-
-Questions identified:
-...
-
-Questions answered:
-...
-
-Sub-questions answered:
-...
-
-Diagram questions:
-...
-
-Graph/construction questions:
-...
-
-Unresolved questions:
-...
-
-[/COMPLETENESS CHECK]
-
-
-Then:
-
-[VISUAL MARKING CHECK]
-
-Visual questions actually used in answering:
-...
-
-Questions where the diagram was unclear:
-...
-
-Important visual information used:
-...
-
-[/VISUAL MARKING CHECK]
-
-
-IMPORTANT:
-
-Do NOT introduce GeoGebra.
-
-Do NOT introduce Formulai.
-
-Do NOT introduce MathType.
-
-Do NOT introduce ChemType.
-
-Do NOT redesign the application.
-
-This is a controlled VISUAL MVP3 test.
-
-The objective is:
-
-SEE THE PAPER
-→ SEE THE DIAGRAM
-→ CONNECT DIAGRAM TO QUESTION
-→ SOLVE USING THE VISUAL
-→ PRODUCE THE MARKING SCHEME.
+Remember:
+The displayed original page is authoritative.
+Use the image to verify the mathematics before solving.
 """
 
-
-# ============================================================
-# PASS 2 — GENERATE MARKING SCHEME
-# ============================================================
-
-def generate_marking_scheme(
-    pdf_bytes,
-    filename,
-    subject,
-    level,
-    extracted_text,
-    visual_audit,
-):
-
-    system_prompt = build_marking_prompt(
-        subject,
-        level,
-        extracted_text,
-        visual_audit,
-    )
-
-    encoded_pdf = base64.b64encode(
-        pdf_bytes
-    ).decode("utf-8")
-
-    user_content = [
-
-        {
-            "type": "input_text",
-            "text": (
-                f"FILE: {filename}\n"
-                f"PAGE COUNT: {get_page_count(pdf_bytes)}\n\n"
-                "PASS 2: Generate the complete marking scheme.\n"
-                "Use the original PDF visually and the visual "
-                "evidence map below."
-            ),
-        },
-
-        {
-            "type": "input_file",
-            "filename": filename,
-            "file_data": (
-                "data:application/pdf;base64,"
-                + encoded_pdf
-            ),
-        },
-
-        {
-            "type": "input_text",
-            "text": (
-                "VISUAL EVIDENCE MAP FROM PASS 1:\n\n"
-                + visual_audit[:60000]
-            ),
-        },
-
-        {
-            "type": "input_text",
-            "text": (
-                "SUPPLEMENTARY EXTRACTED TEXT:\n\n"
-                + extracted_text[:60000]
-            ),
-        },
-    ]
-
     response = client.responses.create(
-
         model=MODEL,
-
-        temperature=0.1,
-
         input=[
-
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-
             {
                 "role": "user",
-                "content": user_content,
-            },
-        ],
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": prompt
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": image_url,
+                        "detail": "high"
+                    }
+                ]
+            }
+        ]
     )
 
-    return response.output_text
+    result = parse_json_response(response.output_text)
+
+    if not result:
+        return {
+            "question_number": question_number,
+            "method": "",
+            "working": [],
+            "final_answer": response.output_text,
+            "marking_scheme": [],
+            "visual_dependency": "unknown",
+            "visual_check": "",
+            "confidence": "low",
+            "warning": "Model response could not be parsed as JSON."
+        }
+
+    return result
 
 
-# ============================================================
-# ORIGINAL PDF DISPLAY
-# ============================================================
+# ------------------------------------------------------------
+# VISUAL COMPLETENESS CHECK
+# ------------------------------------------------------------
 
-def display_original_pdf(pdf_bytes):
+def completeness_check(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
-    st.subheader(
-        "📄 Original Question Paper"
+    expected = []
+
+    for page_result in results:
+        for question in page_result.get("questions", []):
+            number = str(question.get("number", "")).strip()
+
+            if number:
+                expected.append(number)
+
+    solved = []
+
+    for page_result in results:
+        for solution in page_result.get("solutions", []):
+            number = str(
+                solution.get("question_number", "")
+            ).strip()
+
+            if number:
+                solved.append(number)
+
+    expected_set = set(expected)
+    solved_set = set(solved)
+
+    missing = sorted(
+        expected_set - solved_set,
+        key=lambda x: (
+            int(re.sub(r"\D", "", x) or 999),
+            x
+        )
+    )
+
+    return {
+        "questions_detected": len(expected_set),
+        "questions_solved": len(solved_set),
+        "missing_questions": missing,
+        "complete": len(missing) == 0
+    }
+
+
+# ------------------------------------------------------------
+# DISPLAY ORIGINAL PAGE
+# ------------------------------------------------------------
+
+def display_original_page(
+    image_bytes: bytes,
+    page_number: int
+):
+
+    st.image(
+        image_bytes,
+        caption=f"Original examination page {page_number}",
+        width="stretch"
     )
 
     st.caption(
-        "The original PDF remains visible and is the "
-        "authoritative visual source."
-    )
-
-    encoded = base64.b64encode(
-        pdf_bytes
-    ).decode("utf-8")
-
-    components.html(
-
-        f"""
-        <iframe
-            src="data:application/pdf;base64,{encoded}"
-            width="100%"
-            height="850"
-            style="
-                border:1px solid #cccccc;
-                border-radius:8px;
-            ">
-        </iframe>
-        """,
-
-        height=870,
-        scrolling=True,
+        "🔒 Original page preserved — this image is not reconstructed "
+        "from AI-generated text."
     )
 
 
-# ============================================================
-# AUDIT DISPLAY
-# ============================================================
+# ------------------------------------------------------------
+# DISPLAY SOLUTION
+# ------------------------------------------------------------
 
-def show_visual_audit(audit):
+def display_solution(solution: Dict[str, Any]):
 
-    if not audit:
-        return
-
-    st.subheader(
-        "👁️ Visual Scan Report"
-    )
-
-    with st.expander(
-        "What Mwalimu AI actually saw",
-        expanded=True,
-    ):
-
-        st.markdown(
-            audit
-        )
-
-
-# ============================================================
-# CLEAN INTERNAL CHECK BLOCKS
-# ============================================================
-
-def clean_internal_blocks(text):
-
-    text = re.sub(
-        r"\[COMPLETENESS CHECK\].*?"
-        r"\[/COMPLETENESS CHECK\]",
-        "",
-        text,
-        flags=re.S | re.I,
-    )
-
-    text = re.sub(
-        r"\[VISUAL MARKING CHECK\].*?"
-        r"\[/VISUAL MARKING CHECK\]",
-        "",
-        text,
-        flags=re.S | re.I,
-    )
-
-    return text.strip()
-
-
-# ============================================================
-# SHOW FINAL MARKING SCHEME
-# ============================================================
-
-def show_marking_scheme(scheme):
-
-    st.subheader(
-        "📝 Generated Marking Scheme"
-    )
-
-    cleaned = clean_internal_blocks(
-        scheme
+    question_number = solution.get(
+        "question_number",
+        "Unknown"
     )
 
     st.markdown(
-        cleaned
+        f"### ✏️ Question {question_number} — AI Marking Scheme"
     )
 
-    with st.expander(
-        "🔍 Final visual/completeness verification",
-        expanded=False,
-    ):
+    confidence = solution.get("confidence", "")
 
-        visual_match = re.search(
-            r"\[VISUAL MARKING CHECK\](.*?)"
-            r"\[/VISUAL MARKING CHECK\]",
-            scheme,
-            flags=re.S | re.I,
+    if confidence:
+        if confidence == "high":
+            st.success(f"Confidence: {confidence}")
+        elif confidence == "medium":
+            st.warning(f"Confidence: {confidence}")
+        else:
+            st.error(f"Confidence: {confidence}")
+
+    visual_dependency = solution.get(
+        "visual_dependency",
+        "none"
+    )
+
+    if visual_dependency in ("medium", "high"):
+        st.info(
+            f"👁️ Visual dependency: **{visual_dependency}**\n\n"
+            + solution.get("visual_check", "")
         )
 
-        completeness_match = re.search(
-            r"\[COMPLETENESS CHECK\](.*?)"
-            r"\[/COMPLETENESS CHECK\]",
-            scheme,
-            flags=re.S | re.I,
+    method = solution.get("method")
+
+    if method:
+        st.markdown("**Method**")
+        st.write(method)
+
+    st.markdown("**Working**")
+
+    working = solution.get("working", [])
+
+    if isinstance(working, list):
+        for index, step in enumerate(working, start=1):
+            st.markdown(
+                f"**{index}.** {step}"
+            )
+    else:
+        st.write(working)
+
+    final_answer = solution.get("final_answer")
+
+    if final_answer:
+        st.markdown("**Final Answer**")
+        st.success(str(final_answer))
+
+    marking = solution.get(
+        "marking_scheme",
+        []
+    )
+
+    if marking:
+        st.markdown("**Mark Allocation**")
+
+        for item in marking:
+
+            marks = item.get("marks", "")
+            point = item.get("point", "")
+
+            st.markdown(
+                f"- **{marks} mark(s):** {point}"
+            )
+
+    warning = solution.get("warning")
+
+    if warning:
+        st.warning(
+            f"⚠️ Examiner/AI warning: {warning}"
         )
 
-        if visual_match:
 
-            st.markdown(
-                "### Visual marking check"
-            )
-
-            st.markdown(
-                visual_match.group(1).strip()
-            )
-
-        if completeness_match:
-
-            st.markdown(
-                "### Completeness check"
-            )
-
-            st.markdown(
-                completeness_match.group(1).strip()
-            )
-
-
-# ============================================================
-# USER INTERFACE
-# ============================================================
-
-subject = st.selectbox(
-
-    "Subject",
-
-    [
-        "Mathematics",
-        "Chemistry",
-        "Biology",
-        "Physics",
-        "Agriculture",
-        "English",
-        "Kiswahili",
-        "IRE",
-        "Other",
-    ],
-)
-
-
-level = st.text_input(
-    "Level / Grade",
-    "Grade 10",
-)
-
+# ------------------------------------------------------------
+# MAIN UI
+# ------------------------------------------------------------
 
 uploaded = st.file_uploader(
-    "Upload a question paper (PDF)",
+    "Upload the original examination paper",
     type=["pdf"],
+    help=(
+        "Upload the original PDF. Mwalimu AI will preserve its "
+        "visual appearance and analyse the pages directly."
+    )
 )
-
-
-# ============================================================
-# MAIN WORKFLOW
-# ============================================================
 
 if uploaded:
 
-    pdf_bytes = get_pdf_bytes(
-        uploaded
-    )
-
-    page_count = get_page_count(
-        pdf_bytes
-    )
+    pdf_bytes = uploaded.getvalue()
 
     st.success(
-        f"Loaded: {uploaded.name} — "
-        f"{page_count} page(s)"
+        f"Loaded: {uploaded.name}"
     )
-
-    # --------------------------------------------------------
-    # ALWAYS SHOW ORIGINAL
-    # --------------------------------------------------------
-
-    display_original_pdf(
-        pdf_bytes
-    )
-
-    # --------------------------------------------------------
-    # GENERATE
-    # --------------------------------------------------------
 
     if st.button(
-        "🚀 Scan Visually & Generate Marking Scheme",
+        "🔍 Scan Original Paper & Generate Marking Scheme",
         type="primary",
-        use_container_width=True,
+        use_container_width=True
     ):
 
-        try:
+        st.session_state.analysis_results = []
+        st.session_state.page_images = []
+        st.session_state.paper_name = uploaded.name
 
-            # ------------------------------------------------
-            # EXTRACT SUPPLEMENTARY TEXT
-            # ------------------------------------------------
+        # ----------------------------------------------------
+        # STEP 1 — RENDER ORIGINAL PDF
+        # ----------------------------------------------------
 
-            with st.spinner(
-                "Step 1/2 — Reading the paper and "
-                "building visual evidence..."
-            ):
-
-                extracted_text = extract_pdf_text(
+        with st.spinner(
+            "Rendering the original PDF pages..."
+        ):
+            try:
+                page_images = render_pdf_pages(
                     pdf_bytes
                 )
 
-                if not extracted_text.strip():
-
-                    extracted_text = (
-                        "[No reliable machine-readable "
-                        "text was extracted. The original "
-                        "PDF remains the primary source.]"
-                    )
-
-                # ------------------------------------------------
-                # PASS 1
-                # ------------------------------------------------
-
-                visual_audit = run_visual_audit(
-
-                    pdf_bytes=pdf_bytes,
-                    filename=uploaded.name,
-                    subject=subject,
-                    level=level,
-                    extracted_text=extracted_text,
+                page_texts = extract_page_texts(
+                    pdf_bytes
                 )
 
-            # ------------------------------------------------
-            # SHOW VISUAL REPORT
-            # ------------------------------------------------
+            except Exception as exc:
+                st.error(
+                    "Could not read the PDF."
+                )
+                st.exception(exc)
+                st.stop()
 
-            show_visual_audit(
-                visual_audit
-            )
+        st.session_state.page_images = page_images
 
-            # ------------------------------------------------
-            # PASS 2
-            # ------------------------------------------------
+        st.success(
+            f"Rendered {len(page_images)} original pages."
+        )
 
-            with st.spinner(
-                "Step 2/2 — Using the visual evidence to "
-                "solve every question..."
+        # ----------------------------------------------------
+        # STEP 2 — VISUAL ANALYSIS
+        # ----------------------------------------------------
+
+        progress = st.progress(0)
+
+        all_results = []
+
+        for index, image_bytes in enumerate(page_images):
+
+            page_number = index + 1
+
+            with st.status(
+                f"Visually analysing page {page_number}...",
+                expanded=False
             ):
 
-                scheme = generate_marking_scheme(
+                try:
+                    page_analysis = analyse_page(
+                        image_bytes=image_bytes,
+                        page_number=page_number,
+                        extracted_text=page_texts[index]
+                    )
 
-                    pdf_bytes=pdf_bytes,
-                    filename=uploaded.name,
-                    subject=subject,
-                    level=level,
-                    extracted_text=extracted_text,
-                    visual_audit=visual_audit,
+                except Exception as exc:
+
+                    page_analysis = {
+                        "page_number": page_number,
+                        "questions": [],
+                        "visual_warnings": [
+                            str(exc)
+                        ]
+                    }
+
+            page_result = {
+                "page_number": page_number,
+                "questions": page_analysis.get(
+                    "questions",
+                    []
+                ),
+                "visual_warnings": page_analysis.get(
+                    "visual_warnings",
+                    []
+                ),
+                "solutions": []
+            }
+
+            # ------------------------------------------------
+            # STEP 3 — SOLVE QUESTIONS ON THIS PAGE
+            # ------------------------------------------------
+
+            questions = page_result["questions"]
+
+            for question in questions:
+
+                question_number = str(
+                    question.get(
+                        "number",
+                        ""
+                    )
+                ).strip()
+
+                if not question_number:
+                    continue
+
+                with st.status(
+                    f"Solving Question {question_number}...",
+                    expanded=False
+                ):
+
+                    try:
+
+                        solution = solve_question(
+                            image_bytes=image_bytes,
+                            page_number=page_number,
+                            question_number=question_number,
+                            question_summary=question.get(
+                                "visible_text_summary",
+                                ""
+                            ),
+                            diagram_description=question.get(
+                                "diagram_description",
+                                ""
+                            ),
+                            extracted_text=page_texts[index]
+                        )
+
+                    except Exception as exc:
+
+                        solution = {
+                            "question_number":
+                                question_number,
+                            "method": "",
+                            "working": [],
+                            "final_answer": "",
+                            "marking_scheme": [],
+                            "visual_dependency":
+                                "unknown",
+                            "visual_check": "",
+                            "confidence": "low",
+                            "warning": str(exc)
+                        }
+
+                page_result["solutions"].append(
+                    solution
                 )
 
-            # ------------------------------------------------
-            # FINAL OUTPUT
-            # ------------------------------------------------
+            all_results.append(page_result)
 
-            show_marking_scheme(
-                scheme
+            progress.progress(
+                int(
+                    ((index + 1) / len(page_images))
+                    * 100
+                )
             )
 
-            # ------------------------------------------------
-            # DOWNLOAD
-            # ------------------------------------------------
+        st.session_state.analysis_results = all_results
 
-            st.download_button(
+        st.success(
+            "Visual scan and marking-scheme generation completed."
+        )
 
-                "⬇️ Download marking scheme",
 
-                scheme,
+# ------------------------------------------------------------
+# RESULTS
+# ------------------------------------------------------------
 
-                file_name=(
-                    "mwalimu_ai_visual_mvp3_marking_scheme.md"
-                ),
+results = st.session_state.analysis_results
 
-                mime="text/markdown",
+if results:
 
-                use_container_width=True,
+    st.divider()
+
+    st.header("📄 Original Paper + Marking Scheme")
+
+    st.info(
+        "The pages below are the actual original paper pages. "
+        "Mwalimu AI does not redraw the questions. "
+        "The generated working is displayed underneath."
+    )
+
+    # --------------------------------------------------------
+    # COMPLETENESS
+    # --------------------------------------------------------
+
+    check = completeness_check(results)
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Questions detected",
+            check["questions_detected"]
+        )
+
+    with col2:
+        st.metric(
+            "Questions solved",
+            check["questions_solved"]
+        )
+
+    with col3:
+        st.metric(
+            "Missing",
+            len(check["missing_questions"])
+        )
+
+    if check["missing_questions"]:
+        st.warning(
+            "Questions not yet solved: "
+            + ", ".join(
+                check["missing_questions"]
+            )
+        )
+    else:
+        st.success(
+            "✅ Completeness check passed: "
+            "all detected questions have a solution."
+        )
+
+    # --------------------------------------------------------
+    # PAGE-BY-PAGE OUTPUT
+    # --------------------------------------------------------
+
+    for page_result in results:
+
+        page_number = page_result["page_number"]
+
+        st.divider()
+
+        st.header(
+            f"📄 Page {page_number}"
+        )
+
+        # ORIGINAL PAGE FIRST
+        if (
+            page_number <=
+            len(st.session_state.page_images)
+        ):
+
+            display_original_page(
+                st.session_state.page_images[
+                    page_number - 1
+                ],
+                page_number
             )
 
-        except Exception as exc:
+        # VISUAL WARNINGS
+        warnings = page_result.get(
+            "visual_warnings",
+            []
+        )
 
-            st.error(
-                f"Generation failed: {exc}"
+        if warnings:
+
+            with st.expander(
+                "👁️ Visual analysis notes"
+            ):
+
+                for warning in warnings:
+                    st.warning(warning)
+
+        # SOLUTIONS UNDER ORIGINAL PAGE
+        solutions = page_result.get(
+            "solutions",
+            []
+        )
+
+        if solutions:
+
+            for solution in solutions:
+
+                display_solution(
+                    solution
+                )
+
+        else:
+
+            st.caption(
+                "No numbered questions were detected on this page."
             )
 
-            st.exception(
-                exc
-            )
+    # --------------------------------------------------------
+    # FINAL REPORT
+    # --------------------------------------------------------
 
+    st.divider()
 
-# ============================================================
-# STATUS
-# ============================================================
+    st.header(
+        "📊 Visual Marking Report"
+    )
 
-st.divider()
+    diagram_questions = []
 
-st.caption(
-    "Mwalimu AI — Visual MVP3 Upgrade | "
-    "BATTLE 1: TWO-PASS VISUAL UNDERSTANDING | "
-    "Original PDF authoritative | "
-    "Extracted text supplementary"
-)
+    for page_result in results:
+
+        for question in page_result.get(
+            "questions",
+            []
+        ):
+
+            if question.get(
+                "has_diagram",
+                False
+            ):
+
+                diagram_questions.append(
+                    str(
+                        question.get(
+                            "number",
+                            ""
+                        )
+                    )
+                )
+
+    if diagram_questions:
+
+        st.success(
+            "Diagram/figure questions detected: "
+            + ", ".join(diagram_questions)
+        )
+
+    else:
+
+        st.info(
+            "No diagram-dependent questions were detected "
+            "by the visual analyser."
+        )
+
+    # --------------------------------------------------------
+    # DOWNLOADABLE ANALYSIS JSON
+    # --------------------------------------------------------
+
+    json_output = json.dumps(
+        results,
+        indent=2,
+        ensure_ascii=False
+    )
+
+    st.download_button(
+        "⬇️ Download AI analysis (JSON)",
+        data=json_output,
+        file_name="mwalimu_ai_visual_marking_analysis.json",
+        mime="application/json",
+        use_container_width=True
+    )
+
+else:
+
+    st.markdown(
+        """
+        ### How this MVP3 version works
+
+        **1. Upload the original paper**
+
+        **2. Mwalimu AI renders the original pages**
+
+        **3. Vision analysis reads the actual page**
+
+        **4. The original page remains untouched**
+
+        **5. AI generates the mathematical working**
+
+        **6. Working and marking points appear underneath**
+
+        This is deliberately different from an OCR-only pipeline.
+        """
+    )
