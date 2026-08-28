@@ -8,26 +8,21 @@ import streamlit.components.v1 as components
 from pypdf import PdfReader
 from openai import OpenAI
 
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    fitz = None
-
 
 # ============================================================
-# PAGE CONFIG
+# MWALIMU AI — VISUAL MVP3
+# BATTLE 1: DIAGRAMS ONLY
 # ============================================================
 
 st.set_page_config(
     page_title="Mwalimu AI",
     page_icon="🤖",
-    layout="wide"
+    layout="wide",
 )
 
 st.title("🤖 Mwalimu AI")
 st.caption(
-    "Teacher AI assistant — Visual MVP3: "
-    "original paper + visual analysis + workings + formulas + diagrams"
+    "Teacher AI assistant — Visual MVP3 | Diagram understanding upgrade"
 )
 
 
@@ -35,34 +30,54 @@ st.caption(
 # OPENAI
 # ============================================================
 
-key = os.getenv("OPENAI_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY")
 
-if not key:
+if not api_key:
     st.error(
         "OPENAI_API_KEY is not configured. "
-        "Add it as a deployment secret."
+        "Add it as a deployment secret/environment variable."
     )
     st.stop()
 
-client = OpenAI(api_key=key)
+client = OpenAI(api_key=api_key)
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
 
 # ============================================================
-# PDF TEXT EXTRACTION
+# PDF FUNCTIONS
 # ============================================================
 
-def extract_pdf_text(data):
+def get_pdf_bytes(uploaded_file):
     """
-    Extract machine-readable text.
+    Read the uploaded PDF once.
 
-    This is supplementary information only.
-    The visual page images remain authoritative.
+    The original PDF bytes are preserved and sent to the
+    vision-capable model. This is important because extracted
+    text alone cannot reliably preserve diagrams.
+    """
+    return uploaded_file.getvalue()
+
+
+def get_page_count(pdf_bytes):
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        return len(reader.pages)
+    except Exception:
+        return 0
+
+
+def extract_pdf_text(pdf_bytes):
+    """
+    Extract machine-readable text as SUPPLEMENTARY information.
+
+    This is deliberately not the authoritative source.
+    The original PDF is authoritative because it contains
+    the actual visual page.
     """
 
     try:
-        reader = PdfReader(io.BytesIO(data))
+        reader = PdfReader(io.BytesIO(pdf_bytes))
 
         pages = []
 
@@ -70,515 +85,418 @@ def extract_pdf_text(data):
             text = page.extract_text() or ""
 
             pages.append(
-                f"--- PAGE {i} TEXT ---\n{text}"
+                f"--- PAGE {i} ---\n{text}"
             )
 
         return "\n\n".join(pages)
 
-    except Exception as e:
-        return f"[TEXT EXTRACTION ERROR: {e}]"
-
-
-# ============================================================
-# PDF PAGE RENDERING
-# ============================================================
-
-def render_pages(data, dpi=150):
-    """
-    Render every PDF page to PNG.
-
-    This is the critical visual layer.
-    """
-
-    if fitz is None:
-        return []
-
-    try:
-        doc = fitz.open(
-            stream=data,
-            filetype="pdf"
-        )
-
-        scale = dpi / 72
-        matrix = fitz.Matrix(scale, scale)
-
-        pages = []
-
-        for page_number, page in enumerate(doc, 1):
-
-            pix = page.get_pixmap(
-                matrix=matrix,
-                alpha=False
-            )
-
-            png = pix.tobytes("png")
-
-            pages.append(
-                {
-                    "page": page_number,
-                    "image": png
-                }
-            )
-
-        doc.close()
-
-        return pages
-
-    except Exception:
-        return []
-
-
-# ============================================================
-# DISPLAY ORIGINAL PAPER
-# ============================================================
-
-def show_original(data):
-
-    st.subheader("📄 Original Question Paper")
-
-    st.caption(
-        "This is the actual uploaded paper. "
-        "Mwalimu AI does not reconstruct the question paper."
-    )
-
-    pages = render_pages(data)
-
-    if pages:
-
-        for item in pages:
-
-            st.image(
-                item["image"],
-                caption=f"Original paper — page {item['page']}",
-                use_container_width=True
-            )
-
-    else:
-
-        b64 = base64.b64encode(data).decode()
-
-        components.html(
-            f"""
-            <iframe
-                src="data:application/pdf;base64,{b64}"
-                width="100%"
-                height="900"
-                style="border:1px solid #ddd;">
-            </iframe>
-            """,
-            height=920,
-            scrolling=True
+    except Exception as exc:
+        return (
+            "[TEXT EXTRACTION ERROR]\n"
+            f"{exc}"
         )
 
 
 # ============================================================
-# QUESTION DETECTION
+# QUESTION INVENTORY
 # ============================================================
 
-def question_numbers(text):
+def split_question_numbers(text):
+    """
+    Best-effort question-number detection.
+
+    This is ONLY a completeness aid.
+    It must never override what the model sees in the PDF.
+    """
 
     patterns = [
-        r"(?im)^\s*(?:question\s*)?(\d{1,2})[.\):\-]\s+",
-        r"(?im)^\s*(\d{1,2})\s*[.)]\s+"
+        r"(?im)^\s*(?:question\s*)?(\d{1,2})[.):-]\s+",
+        r"(?im)^\s*q\s*(\d{1,2})[.):-]\s+",
     ]
 
     found = []
 
     for pattern in patterns:
-        found.extend(
-            re.findall(pattern, text)
-        )
+        found.extend(re.findall(pattern, text))
 
     return list(dict.fromkeys(found))
 
 
 # ============================================================
-# DETECT VISUAL / MATHEMATICAL CONTENT
+# ORIGINAL PDF DISPLAY
 # ============================================================
 
-def detect_features(text, subject):
+def display_original_pdf(pdf_bytes):
 
-    t = text.lower()
+    st.subheader("📄 Original Question Paper")
 
-    return {
+    st.caption(
+        "The original PDF is preserved exactly as uploaded. "
+        "Mwalimu AI uses the original page as the visual authority."
+    )
 
-        "geometry": bool(
-            re.search(
-                r"\b("
-                r"construct|construction|locus|bisect|"
-                r"perpendicular|parallel|bearing|circle|"
-                r"tangent|transformation|reflection|rotation|"
-                r"translation|enlargement|vector|geometry"
-                r")\b",
-                t
-            )
-        ),
+    encoded = base64.b64encode(pdf_bytes).decode("utf-8")
 
-        "graph": bool(
-            re.search(
-                r"\b("
-                r"graph|plot|curve|coordinate|gradient|"
-                r"quadratic|cubic|function|sketch|axis"
-                r")\b",
-                t
-            )
-        ),
-
-        "formula": (
-            subject.lower()
-            in {
-                "mathematics",
-                "physics",
-                "chemistry"
-            }
-            or bool(
-                re.search(
-                    r"\b("
-                    r"equation|formula|fraction|indices|"
-                    r"surds|matrix|logarithm|differentiation|"
-                    r"integration|probability|quadratic|"
-                    r"calculate|calculate the"
-                    r")\b",
-                    t
-                )
-            )
-        ),
-
-        "diagram": bool(
-            re.search(
-                r"\b("
-                r"diagram|figure|apparatus|shown|"
-                r"sketch|graph|illustration|drawing|"
-                r"construction"
-                r")\b",
-                t
-            )
-        )
-    }
+    components.html(
+        f"""
+        <iframe
+            src="data:application/pdf;base64,{encoded}"
+            width="100%"
+            height="850"
+            style="
+                border:1px solid #cccccc;
+                border-radius:8px;
+            ">
+        </iframe>
+        """,
+        height=870,
+        scrolling=True,
+    )
 
 
 # ============================================================
-# BUILD VISUAL INPUT
+# DIAGRAM DETECTION HINTS
 # ============================================================
 
-def build_visual_inputs(pages):
+def visual_keywords(subject):
 
-    content = []
+    common = (
+        "diagram, figure, graph, chart, table, drawing, "
+        "illustration, apparatus, specimen, labelled, "
+        "shown, image, construction"
+    )
 
-    for item in pages:
-
-        encoded = base64.b64encode(
-            item["image"]
-        ).decode("utf-8")
-
-        content.append(
-            {
-                "type": "input_text",
-                "text": (
-                    f"\n\n===== ORIGINAL PAPER PAGE "
-                    f"{item['page']} =====\n"
-                    "Inspect this page visually. "
-                    "All diagrams, graphs, tables, "
-                    "symbols, figures, constructions and "
-                    "layout on this page are authoritative."
-                )
-            }
+    if subject.lower() == "biology":
+        return (
+            common
+            + ", biological drawing, specimen, cell, organ, "
+              "tissue, structure, life cycle"
         )
 
-        content.append(
-            {
-                "type": "input_image",
-                "image_url": (
-                    f"data:image/png;base64,{encoded}"
-                )
-            }
+    if subject.lower() == "physics":
+        return (
+            common
+            + ", circuit, ray diagram, apparatus, force diagram, "
+              "motion diagram, electrical diagram"
         )
 
-    return content
+    if subject.lower() == "chemistry":
+        return (
+            common
+            + ", apparatus, laboratory setup, structure, "
+              "organic structure, molecular diagram"
+        )
+
+    if subject.lower() == "mathematics":
+        return (
+            common
+            + ", triangle, circle, angle, geometry, coordinate plane, "
+              "shape, transformation, graph"
+        )
+
+    return common
 
 
 # ============================================================
-# MARKING SCHEME PROMPT
+# VISUAL PROMPT
 # ============================================================
 
-def build_prompt(
+def build_visual_prompt(
     subject,
     level,
-    text,
-    features,
-    numbers
+    extracted_text,
 ):
 
+    inventory = split_question_numbers(
+        extracted_text
+    )
+
+    inventory_text = (
+        ", ".join(inventory)
+        if inventory
+        else "Not reliably detected from text."
+    )
+
     return f"""
-You are Mwalimu AI, a rigorous Kenyan examination
-marking-scheme assistant.
+You are Mwalimu AI, a rigorous Kenyan teacher-support
+assistant.
 
 SUBJECT:
 {subject}
 
-LEVEL / GRADE:
+LEVEL:
 {level}
 
-PRELIMINARY QUESTION NUMBERS:
-{numbers}
+PRELIMINARY TEXT QUESTION INVENTORY:
+{inventory_text}
 
-VISUAL FEATURES DETECTED:
-
-Geometry:
-{features["geometry"]}
-
-Graphs:
-{features["graph"]}
-
-Formula-heavy:
-{features["formula"]}
-
-Diagrams:
-{features["diagram"]}
+VISUAL ELEMENTS TO WATCH FOR:
+{visual_keywords(subject)}
 
 
 ============================================================
-MOST IMPORTANT INSTRUCTION
+PRIMARY SOURCE
 ============================================================
 
-The ORIGINAL PAGE IMAGES supplied with this request are
-the authoritative question paper.
+The ORIGINAL PDF attached to this request is the
+authoritative examination paper.
 
-You must visually inspect the actual pages.
+You must visually inspect the actual PDF pages.
 
-DO NOT rely only on OCR or extracted text.
+The extracted text supplied separately is supplementary
+only.
 
-The extracted text is supplementary.
+Do NOT rely exclusively on OCR or PDF text extraction.
 
-When text extraction conflicts with the original page image,
-trust the original page image.
-
-
-============================================================
-VISUAL UNDERSTANDING
-============================================================
-
-You must inspect:
-
-• diagrams
-• graphs
-• geometric constructions
-• tables
-• axes
-• labels
-• arrows
-• measurements
-• fractions
-• mathematical symbols
-• indices
-• roots
-• equations
-• chemical formulae
-• chemical structures
-• apparatus
-• biological drawings
-• maps
-• charts
-• shaded regions
-• lines and angles
-• labels attached to diagrams
-
-
-If a question refers to:
-
-"the diagram below"
-
-"the figure"
-
-"the graph"
-
-"the apparatus shown"
-
-"the construction"
-
-or similar wording,
-
-you MUST inspect the corresponding visual material
-before answering.
+If extracted text conflicts with the visible PDF page,
+trust the visible PDF page.
 
 
 ============================================================
-QUESTION COMPLETENESS
+DIAGRAM-FIRST MISSION
 ============================================================
+
+THIS VERSION IS SPECIFICALLY TESTING DIAGRAM UNDERSTANDING.
+
+Before generating the marking scheme, perform a visual
+inspection of EVERY PAGE.
+
+For each page, look carefully for:
+
+- diagrams
+- figures
+- graphs
+- tables
+- charts
+- apparatus
+- specimens
+- biological drawings
+- circuit diagrams
+- ray diagrams
+- geometric figures
+- labelled structures
+- arrows
+- lines
+- measurements
+- scales
+- angles
+- shaded regions
+- construction marks
+- captions
+- visual symbols
+
+
+============================================================
+CONNECT VISUALS TO QUESTIONS
+============================================================
+
+For every visual element determine:
+
+1. Which question it belongs to.
+2. Which sub-question it belongs to, if applicable.
+3. What visible labels are present.
+4. What measurements are visible.
+5. What arrows or lines are present.
+6. What shapes or structures are visible.
+7. What relationships are visually shown.
+8. What information from the visual is required to answer
+   the question.
+
+
+============================================================
+NEVER GUESS
+============================================================
+
+Do not invent:
+
+- labels
+- measurements
+- coordinates
+- dimensions
+- angles
+- biological structures
+- apparatus
+- graph values
+- chemical structures
+
+If the visual is genuinely unclear, explicitly say so.
+
+Identify the exact question affected.
+
+For example:
+
+"Question 4(b): the diagram is present but the label at
+the lower-right structure cannot be read confidently."
+
+
+============================================================
+MARKING SCHEME
+============================================================
+
+After completing the visual inspection, generate the normal
+MVP3-style marking scheme.
 
 Process EVERY question.
 
 Process EVERY sub-question.
 
-Do NOT silently omit questions.
+Keep the original question numbering.
 
-Preserve the original numbering.
+Do not silently skip questions.
 
-If the paper contains:
+For calculation questions:
 
-1(a)
-1(b)
-1(c)
+- show the formula
+- substitute values
+- show essential working
+- give the final answer
+- include units where required
 
-then answer:
+For theory questions:
 
-1(a)
-1(b)
-1(c)
+- give the expected answer
+- include relevant marking points
 
-Do not merge them.
+For diagram questions:
+
+- use information actually visible in the diagram
+- explicitly refer to relevant labels/features
+- do not substitute an invented diagram
 
 
 ============================================================
-OUTPUT STYLE
+ORIGINAL DIAGRAM POLICY
 ============================================================
 
-Generate a professional teacher-ready marking scheme.
+DO NOT recreate the original question paper.
 
-For each question use:
+DO NOT redraw the question diagram using ASCII art.
 
-QUESTION 1(a)
+DO NOT replace the original diagram with an invented
+description.
 
-Answer:
+The original PDF displayed in the application remains the
+visual reference.
+
+The marking scheme should explain the answer using the
+actual visual information that was inspected.
+
+
+============================================================
+BIOLOGY VISUALS
+============================================================
+
+For biological diagrams:
+
+- inspect the actual drawing
+- identify visible labels
+- identify structures only when supported by the visual
+- distinguish similar structures carefully
+- use correct biological terminology
+
+Do not invent missing labels.
+
+
+============================================================
+PHYSICS VISUALS
+============================================================
+
+For Physics diagrams:
+
+- inspect arrows
+- direction
+- apparatus
+- circuit connections
+- ray paths
+- measurements
+- labels
+- forces
+- distances
+- angles
+
+Use only visible information.
+
+
+============================================================
+MATHEMATICS VISUALS
+============================================================
+
+For Mathematics diagrams:
+
+- inspect shapes
+- labels
+- angles
+- lengths
+- coordinates
+- lines
+- curves
+- shaded regions
+
+Do not guess measurements that are not visible.
+
+
+============================================================
+CHEMISTRY VISUALS
+============================================================
+
+For Chemistry diagrams:
+
+- inspect apparatus
+- labels
+- laboratory arrangement
+- structures
+- visible chemical notation
+
+Do not invent chemical structures from an unclear image.
+
+
+============================================================
+SECOND VISUAL PASS
+============================================================
+
+Before finalising, perform a second pass through the PDF.
+
+Ask:
+
+- Did I inspect every page?
+- Did I identify every diagram?
+- Did I associate each diagram with the correct question?
+- Did I use the visible information?
+- Did I accidentally rely on OCR where the image contradicted it?
+- Did I skip any question because its diagram was difficult?
+
+
+============================================================
+DIAGRAM AUDIT
+============================================================
+
+End with exactly:
+
+[DIAGRAM AUDIT]
+
+Pages visually inspected:
 ...
 
-Working:
+Diagram/visual questions detected:
 ...
 
-Marks:
+Diagram/visual questions successfully interpreted:
 ...
 
-QUESTION 1(b)
-
-Answer:
+Questions with unclear visual information:
 ...
 
-Working:
+Important visual information used:
 ...
 
-Marks:
-...
-
-
-For theory questions, give the precise expected answer.
-
-For calculation questions, show the essential working.
-
-For Mathematics and Physics:
-
-• show equations clearly
-• show substitution
-• show calculations
-• show units
-• give the final answer
-• use LaTeX where appropriate
-
-For Chemistry:
-
-• write chemical formulae correctly
-• balance equations correctly
-• show calculations
-• preserve charges, subscripts and states where relevant
-
-For Biology:
-
-• use correct biological terminology
-• identify structures accurately
-• use the actual diagram where relevant
-
-For geometry:
-
-• identify the construction required
-• explain construction steps
-• use the actual measurements/labels visible in the diagram
-• do not invent measurements
-
-For graph questions:
-
-• identify the axes
-• identify scales
-• identify coordinates/data
-• explain plotting
-• calculate gradient where required
-• identify intercepts where required
-• describe the curve correctly
+[/DIAGRAM AUDIT]
 
 
 ============================================================
-DIAGRAMS
+COMPLETENESS CHECK
 ============================================================
 
-DO NOT attempt to recreate an existing diagram using
-ordinary text.
-
-Instead, describe what the diagram shows accurately
-when necessary and solve the question using the actual
-visual.
-
-If the diagram contains information essential to the
-answer, explicitly state that information.
-
-
-============================================================
-UNCLEAR VISUAL INFORMATION
-============================================================
-
-If a diagram or symbol genuinely cannot be read:
-
-DO NOT GUESS.
-
-Write:
-
-"Visual information unclear — please inspect the original
-page."
-
-Then identify the exact question affected.
-
-
-============================================================
-FORMULAS
-============================================================
-
-Use proper mathematical notation.
-
-Examples:
-
-$$
-a^2+b^2=c^2
-$$
-
-$$
-v = u + at
-$$
-
-$$
-\\frac{{a}}{{b}}
-$$
-
-Do not replace mathematical notation with crude OCR such as:
-
-a2 + b2 = c2
-
-when proper notation is possible.
-
-
-============================================================
-MARKS
-============================================================
-
-Award marks according to the likely examination logic.
-
-Do not invent excessive marks.
-
-Where workings are required, distribute marks logically
-between method and final answer.
-
-
-============================================================
-FINAL COMPLETENESS AUDIT
-============================================================
-
-At the end output:
+Then finish with:
 
 [COMPLETENESS CHECK]
 
@@ -591,299 +509,164 @@ Questions answered:
 Sub-questions answered:
 ...
 
-Visual questions inspected:
+Unresolved questions:
 ...
 
-Diagram questions:
-...
-
-Graph questions:
-...
-
-Formula/calculation questions:
-...
-
-Unclear questions:
-...
-
-No question or sub-question was intentionally omitted.
+No question was intentionally omitted.
 
 [/COMPLETENESS CHECK]
 
 
-Do not mention:
+IMPORTANT:
 
-ChemType
-MathType
-internal software
-OCR limitations
+This is a diagram-understanding test.
 
-unless specifically necessary to explain an unresolved
-visual issue.
+Do NOT introduce new specialist-tool integrations.
+
+Do NOT redesign the mathematics rendering.
+
+Do NOT redesign chemistry notation.
+
+Do NOT introduce GeoGebra.
+
+Do NOT change the existing MVP3 marking philosophy.
+
+The only objective of this upgrade is to improve the AI's
+ability to SEE and USE diagrams from the original PDF.
 """
 
 
 # ============================================================
-# CALL VISION MODEL
+# AI GENERATION
 # ============================================================
 
-def analyse_paper(
-    data,
+def generate_marking_scheme(
+    pdf_bytes,
     filename,
     subject,
     level,
-    text
+    extracted_text,
 ):
 
-    pages = render_pages(
-        data,
-        dpi=150
+    system_prompt = build_visual_prompt(
+        subject,
+        level,
+        extracted_text,
     )
 
-    if not pages:
+    encoded_pdf = base64.b64encode(
+        pdf_bytes
+    ).decode("utf-8")
 
-        raise RuntimeError(
-            "The PDF pages could not be rendered. "
-            "Please ensure PyMuPDF is installed."
-        )
-
-    features = detect_features(
-        text,
-        subject
-    )
-
-    numbers = (
-        ", ".join(question_numbers(text))
-        or "Not reliably extracted"
-    )
-
-    prompt = build_prompt(
-        subject=subject,
-        level=level,
-        text=text,
-        features=features,
-        numbers=numbers
-    )
-
-    visual_content = build_visual_inputs(
-        pages
-    )
-
-    content = [
-
-        {
-            "type": "input_text",
-            "text": prompt
-        },
-
+    user_content = [
         {
             "type": "input_text",
             "text": (
-                "\n\n===== SUPPLEMENTARY MACHINE-READABLE "
-                "TEXT =====\n"
-                f"{text[:50000]}"
-            )
-        }
-
+                f"FILE: {filename}\n"
+                f"PAGE COUNT: {get_page_count(pdf_bytes)}\n\n"
+                "Inspect the attached original PDF visually, "
+                "page by page. This is the DIAGRAM TEST version "
+                "of Mwalimu AI."
+            ),
+        },
+        {
+            "type": "input_file",
+            "filename": filename,
+            "file_data": (
+                f"data:application/pdf;base64,{encoded_pdf}"
+            ),
+        },
+        {
+            "type": "input_text",
+            "text": (
+                "SUPPLEMENTARY MACHINE-READABLE TEXT.\n"
+                "THIS TEXT IS NOT AUTHORITATIVE.\n\n"
+                f"{extracted_text[:60000]}"
+            ),
+        },
     ]
-
-    content.extend(
-        visual_content
-    )
 
     response = client.responses.create(
         model=MODEL,
+        temperature=0.1,
         input=[
             {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
                 "role": "user",
-                "content": content
-            }
-        ]
+                "content": user_content,
+            },
+        ],
     )
 
     return response.output_text
 
 
 # ============================================================
-# CLEAN MARKING SCHEME
+# DISPLAY HELPERS
 # ============================================================
 
-def extract_completeness(text):
+def show_diagram_audit(scheme):
 
     match = re.search(
-        r"\[COMPLETENESS CHECK\](.*?)"
-        r"\[/COMPLETENESS CHECK\]",
-        text,
-        flags=re.S | re.I
+        r"\[DIAGRAM AUDIT\](.*?)\[/DIAGRAM AUDIT\]",
+        scheme,
+        flags=re.S | re.I,
     )
 
-    return (
-        match.group(1).strip()
-        if match
-        else None
-    )
-
-
-def clean_scheme(text):
-
-    text = re.sub(
-        r"\[COMPLETENESS CHECK\].*?"
-        r"\[/COMPLETENESS CHECK\]",
-        "",
-        text,
-        flags=re.S | re.I
-    )
-
-    return text.strip()
-
-
-# ============================================================
-# FORMULA DISPLAY
-# ============================================================
-
-def formula_workspace(text):
-
-    st.subheader(
-        "∑ Formula & Mathematical Notation"
-    )
-
-    st.caption(
-        "Mwalimu AI preserves mathematical notation "
-        "using LaTeX. FormulAI can be used when an "
-        "editable Word-ready formula is required."
-    )
-
-    st.link_button(
-        "Open FormulAI Formula Generator",
-        "https://formulai.io/formula-generator"
-    )
-
-    formulas = []
-
-    formulas.extend(
-        re.findall(
-            r"\$\$(.*?)\$\$",
-            text,
-            flags=re.S
-        )
-    )
-
-    formulas.extend(
-        re.findall(
-            r"\\\[(.*?)\\\]",
-            text,
-            flags=re.S
-        )
-    )
-
-    formulas.extend(
-        re.findall(
-            r"\\\((.*?)\\\)",
-            text,
-            flags=re.S
-        )
-    )
-
-    if formulas:
+    if match:
 
         with st.expander(
-            f"📋 Detected formulas ({len(formulas)})"
+            "🖼️ Diagram audit",
+            expanded=True,
         ):
-
-            for i, formula in enumerate(
-                formulas,
-                1
-            ):
-
-                st.markdown(
-                    f"**Formula {i}**"
-                )
-
-                st.code(
-                    formula.strip()
-                )
+            st.markdown(
+                match.group(1).strip()
+            )
 
 
-# ============================================================
-# GEOGEBRA
-# ============================================================
+def show_completeness_check(scheme):
 
-def geogebra_workspace():
-
-    st.subheader("📐 GeoGebra Workspace")
-
-    st.caption(
-        "Useful for geometry, constructions and graphing."
+    match = re.search(
+        r"\[COMPLETENESS CHECK\](.*?)\[/COMPLETENESS CHECK\]",
+        scheme,
+        flags=re.S | re.I,
     )
 
-    geometry, graphing, calculator = st.tabs(
-        [
-            "Geometry",
-            "Graphing",
-            "Calculator"
-        ]
-    )
+    if match:
 
-    with geometry:
-
-        components.iframe(
-            "https://www.geogebra.org/geometry",
-            height=650,
-            scrolling=True
-        )
-
-    with graphing:
-
-        components.iframe(
-            "https://www.geogebra.org/graphing",
-            height=650,
-            scrolling=True
-        )
-
-    with calculator:
-
-        components.iframe(
-            "https://www.geogebra.org/calculator",
-            height=650,
-            scrolling=True
-        )
-
-
-# ============================================================
-# VISUAL AUDIT
-# ============================================================
-
-def visual_audit(text):
-
-    visual_items = re.findall(
-        r"\[VISUAL CHECK\](.*?)"
-        r"\[/VISUAL CHECK\]",
-        text,
-        flags=re.S | re.I
-    )
-
-    if visual_items:
-
-        st.subheader(
-            "👁️ Visual Analysis"
-        )
-
-        for i, item in enumerate(
-            visual_items,
-            1
+        with st.expander(
+            "🔍 Completeness check",
+            expanded=False,
         ):
+            st.markdown(
+                match.group(1).strip()
+            )
 
-            with st.expander(
-                f"Visual analysis {i}"
-            ):
 
-                st.write(
-                    item.strip()
-                )
+def clean_internal_blocks(scheme):
+
+    scheme = re.sub(
+        r"\[DIAGRAM AUDIT\].*?\[/DIAGRAM AUDIT\]",
+        "",
+        scheme,
+        flags=re.S | re.I,
+    )
+
+    scheme = re.sub(
+        r"\[COMPLETENESS CHECK\].*?\[/COMPLETENESS CHECK\]",
+        "",
+        scheme,
+        flags=re.S | re.I,
+    )
+
+    return scheme.strip()
 
 
 # ============================================================
-# MAIN APPLICATION
+# USER INTERFACE
 # ============================================================
 
 subject = st.selectbox(
@@ -897,145 +680,123 @@ subject = st.selectbox(
         "English",
         "Kiswahili",
         "IRE",
-        "Other"
-    ]
+        "Other",
+    ],
 )
 
 level = st.text_input(
     "Level / Grade",
-    "Grade 10"
+    "Grade 10",
 )
 
 uploaded = st.file_uploader(
     "Upload a question paper (PDF)",
-    type=["pdf"]
+    type=["pdf"],
 )
 
 
+# ============================================================
+# MAIN WORKFLOW
+# ============================================================
+
 if uploaded:
 
-    data = uploaded.getvalue()
-
-    st.success(
-        f"Loaded: {uploaded.name}"
+    pdf_bytes = get_pdf_bytes(
+        uploaded
     )
 
-    # --------------------------------------------------------
-    # ORIGINAL PAPER
-    # --------------------------------------------------------
+    page_count = get_page_count(
+        pdf_bytes
+    )
 
-    show_original(data)
+    st.success(
+        f"Loaded: {uploaded.name} — "
+        f"{page_count} page(s)"
+    )
 
-    # --------------------------------------------------------
-    # TEXT TRACE
-    # --------------------------------------------------------
-
-    text = extract_pdf_text(data)
-
-    with st.expander(
-        "🔎 Supplementary machine-readable text"
-    ):
-
-        st.text(
-            text[:30000]
-        )
-
-    # --------------------------------------------------------
-    # GENERATE
-    # --------------------------------------------------------
+    # Keep the original paper visible.
+    display_original_pdf(
+        pdf_bytes
+    )
 
     if st.button(
-        "📝 Generate Visual Marking Scheme",
-        type="primary"
+        "🚀 Generate Marking Scheme",
+        type="primary",
+        use_container_width=True,
     ):
 
         with st.spinner(
-            "Mwalimu AI is visually inspecting every "
-            "page, diagram, graph, formula and question..."
+            "Mwalimu AI is visually scanning the original paper..."
         ):
 
             try:
 
-                scheme = analyse_paper(
-                    data=data,
+                extracted_text = extract_pdf_text(
+                    pdf_bytes
+                )
+
+                if not extracted_text.strip():
+                    extracted_text = (
+                        "[No reliable machine-readable text "
+                        "was extracted. Use the original PDF "
+                        "as the primary source.]"
+                    )
+
+                scheme = generate_marking_scheme(
+                    pdf_bytes=pdf_bytes,
                     filename=uploaded.name,
                     subject=subject,
                     level=level,
-                    text=text
+                    extracted_text=extracted_text,
                 )
 
-                st.session_state[
-                    "scheme"
-                ] = scheme
+                st.subheader(
+                    "📝 Generated Marking Scheme"
+                )
 
-            except Exception as e:
+                st.markdown(
+                    clean_internal_blocks(
+                        scheme
+                    )
+                )
+
+                show_diagram_audit(
+                    scheme
+                )
+
+                show_completeness_check(
+                    scheme
+                )
+
+                st.download_button(
+                    "⬇️ Download marking scheme",
+                    scheme,
+                    file_name=(
+                        "mwalimu_ai_marking_scheme.md"
+                    ),
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+
+            except Exception as exc:
 
                 st.error(
-                    f"Unable to generate marking scheme: {e}"
+                    f"Generation failed: {exc}"
+                )
+
+                st.exception(
+                    exc
                 )
 
 
 # ============================================================
-# DISPLAY RESULTS
+# STATUS
 # ============================================================
 
-if st.session_state.get("scheme"):
+st.divider()
 
-    scheme = st.session_state["scheme"]
-
-    st.divider()
-
-    st.subheader(
-        "📝 Generated Marking Scheme"
-    )
-
-    st.caption(
-        "The original question paper remains above. "
-        "The answers and workings below are generated "
-        "from both the extracted text and the actual "
-        "visual pages."
-    )
-
-    st.markdown(
-        clean_scheme(scheme)
-    )
-
-    # --------------------------------------------------------
-    # VISUAL AUDIT
-    # --------------------------------------------------------
-
-    visual_audit(scheme)
-
-    # --------------------------------------------------------
-    # COMPLETENESS
-    # --------------------------------------------------------
-
-    completeness = extract_completeness(
-        scheme
-    )
-
-    if completeness:
-
-        st.subheader(
-            "✅ Completeness Audit"
-        )
-
-        st.info(
-            completeness
-        )
-
-    # --------------------------------------------------------
-    # FORMULAS
-    # --------------------------------------------------------
-
-    formula_workspace(
-        scheme
-    )
-
-    # --------------------------------------------------------
-    # GEOGEBRA
-    # --------------------------------------------------------
-
-    st.divider()
-
-    geogebra_workspace()
+st.caption(
+    "Mwalimu AI — Visual MVP3 | "
+    "BATTLE 1: DIAGRAMS ONLY | "
+    "Original PDF is authoritative; extracted text is supplementary."
+)
