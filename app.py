@@ -21,9 +21,13 @@ from openai import OpenAI
 # The original PDF pages are rendered and displayed directly.
 # AI never reconstructs the original examination paper.
 #
-# CONTROLLED UPGRADE:
+# CONTROLLED POLISH:
 # AI-generated working and answers use native mathematical
 # notation / LaTeX where appropriate.
+#
+# LOW-CONFIDENCE VERIFICATION:
+# A generated solution is checked against the original page
+# before confidence is displayed.
 #
 # NO external formula engine.
 # NO GeoGebra.
@@ -103,12 +107,6 @@ if "paper_name" not in st.session_state:
 # ------------------------------------------------------------
 
 def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
-    """
-    Render every original PDF page to a high-resolution JPEG.
-
-    The rendered image is the visual source of truth.
-    Nothing is reconstructed.
-    """
 
     pages = []
 
@@ -162,14 +160,6 @@ def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
 def extract_page_texts(
     pdf_bytes: bytes
 ) -> List[str]:
-
-    """
-    Extract text only for supporting AI reasoning.
-
-    IMPORTANT:
-    This text is NEVER used as the displayed version
-    of the original question.
-    """
 
     texts = []
 
@@ -228,12 +218,12 @@ The original page image is the authoritative source.
 
 DO NOT invent, redraw, simplify or replace diagrams.
 
-Your task is to identify what is actually visible on the page.
+Identify every visible numbered question.
 
-In addition to identifying each question, identify the approximate
-bounding box of each question on the supplied page image.
+For each question identify the approximate bounding box.
 
-The bounding box must cover the COMPLETE visible question, including:
+The bounding box must cover the COMPLETE visible question,
+including:
 
 - question text
 - mathematical expressions
@@ -256,7 +246,7 @@ height = height of the box
 
 Return JSON only.
 
-Required JSON structure:
+Required structure:
 
 {
   "page_number": integer,
@@ -275,36 +265,33 @@ Required JSON structure:
       },
 
       "has_diagram": true/false,
-      "diagram_description": "describe the actual visible diagram, if any",
+      "diagram_description": "actual visible diagram, if any",
       "has_graph": true/false,
       "has_table": true/false,
       "has_construction": true/false,
       "has_special_math_notation": true/false,
 
       "important_visual_features": [
-        "list important visible features"
+        "important visible features"
       ]
     }
   ],
 
   "visual_warnings": [
-    "anything that is difficult to read or visually ambiguous"
+    "anything genuinely difficult to read"
   ]
 }
 
-IMPORTANT BOUNDING-BOX RULES:
+IMPORTANT:
 
 1. Coordinates must refer to the supplied page image.
-2. Do not invent coordinates for questions that are not visible.
-3. Include all visible parts of a question.
+2. Do not invent coordinates.
+3. Include all visible parts of each question.
 4. Include diagrams belonging to the question.
-5. Include tables, graphs and constructions belonging to the question.
-6. If two questions are very close together, leave a small amount
-   of surrounding context rather than cutting off mathematical
-   information.
-7. Do not solve the questions here.
+5. Include tables, graphs and constructions.
+6. If a diagram is present, explicitly identify it.
+7. Do not solve the questions.
 8. Do not manufacture missing information.
-9. If a diagram is present, explicitly say so.
 """
 
 
@@ -319,7 +306,7 @@ The original examination page is supplied as an image.
 
 The image is authoritative.
 
-You must solve the question using the actual visible information.
+Solve the question using the actual visible information.
 
 IMPORTANT:
 
@@ -327,9 +314,9 @@ IMPORTANT:
 
 2. Do NOT omit a diagram from your reasoning.
 
-3. If a diagram is essential, explicitly refer to the labels,
-   dimensions, angles, coordinates or other information visible
-   in that diagram.
+3. If a diagram is essential, explicitly use the labels,
+   dimensions, angles, coordinates or other information
+   visible in that diagram.
 
 4. Show complete mathematical working.
 
@@ -339,18 +326,14 @@ IMPORTANT:
 
 7. Do not award marks for unsupported invented work.
 
-8. If the image is unclear, say so instead of guessing.
+8. If genuinely necessary information cannot be read,
+   state that clearly.
 
 ============================================================
-MATHEMATICAL NOTATION RULE
+MATHEMATICAL NOTATION
 ============================================================
 
-All mathematical expressions in the generated WORKING and
-FINAL ANSWER should use proper LaTeX mathematical notation.
-
-Use LaTeX whenever mathematics is being displayed.
-
-Examples:
+Use proper LaTeX mathematical notation.
 
 Fractions:
 \frac{a}{b}
@@ -463,38 +446,58 @@ c & d
 Quadratic formula:
 x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}
 
-============================================================
-
-When writing a mathematical expression, put it inside LaTeX
-delimiters so the application can render it correctly.
-
-For inline mathematics use:
+Use:
 
 \( ... \)
 
-For displayed mathematics use:
+for inline mathematics and:
 
 \[ ... \]
 
-Do NOT use plain-text approximations such as:
+for displayed mathematics.
 
-x^2/2
+Do not use plain-text substitutes such as:
+
 sqrt(x)
+x^2/2
 (-b+sqrt(...))/2a
 
 when proper mathematical notation is appropriate.
 
-Use actual LaTeX instead.
+============================================================
 
-Ordinary explanatory sentences should remain ordinary text.
+CONFIDENCE RULE
 
-The mathematics must remain mathematically accurate.
+Do NOT automatically label a solution low confidence.
+
+Low confidence is appropriate ONLY when there is a genuine
+problem with the mathematical solution or with essential
+visual information.
+
+Examples of genuine uncertainty:
+
+- an essential diagram label cannot be read;
+- a numerical value is genuinely ambiguous;
+- the question itself is incomplete or obscured;
+- two mathematically different interpretations are possible;
+- the solution contains an unresolved contradiction;
+- the final answer cannot be verified reliably.
+
+Do NOT use low confidence merely because:
+
+- the question contains a diagram;
+- the question is difficult;
+- the answer uses advanced mathematics;
+- the response contains a formatting issue;
+- JSON formatting is imperfect;
+- the model simply feels uncertain without identifying
+  an actual mathematical or visual problem.
 
 Return JSON only:
 
 {
   "question_number": "...",
-  "method": "brief description of method",
+  "method": "brief description",
 
   "working": [
     "step 1",
@@ -514,12 +517,68 @@ Return JSON only:
   "visual_dependency": "none | low | medium | high",
 
   "visual_check":
-    "explain what visual information was used",
+    "explain the visual information used",
 
   "confidence":
     "high | medium | low",
 
+  "confidence_reason":
+    "specific reason for the confidence level",
+
   "warning": ""
+}
+"""
+
+
+# ------------------------------------------------------------
+# VERIFICATION PROMPT
+# ------------------------------------------------------------
+
+VERIFICATION_PROMPT = r"""
+You are the verification examiner for Mwalimu AI.
+
+Your job is NOT to solve the question from scratch unless
+necessary.
+
+You are checking an already generated mathematics solution
+against the ORIGINAL examination page image.
+
+The original image is authoritative.
+
+Check:
+
+1. Was the question interpreted correctly?
+2. Were the visible numbers, symbols and labels used correctly?
+3. If a diagram exists, was it interpreted correctly?
+4. Is the mathematical working internally correct?
+5. Does the final answer follow from the working?
+6. Does the marking scheme correspond to the working?
+7. Is there any genuine visual ambiguity?
+8. Is there any genuine mathematical error?
+
+IMPORTANT:
+
+Do not mark a solution low confidence merely because the
+question is difficult.
+
+Do not mark it low confidence because a diagram exists.
+
+Do not mark it low confidence because the model used LaTeX.
+
+Do not mark it low confidence because of a response-format issue.
+
+Low confidence must be supported by a specific mathematical
+or visual reason.
+
+Return JSON only:
+
+{
+  "verified": true,
+  "confidence": "high | medium | low",
+  "reason": "specific verification finding",
+  "mathematical_error": true/false,
+  "visual_ambiguity": true/false,
+  "recommended_action": "accept | review"
 }
 """
 
@@ -581,13 +640,6 @@ def normalise_bbox(
     image_width: int,
     image_height: int
 ) -> Dict[str, int] | None:
-
-    """
-    Safely constrain an AI-produced bounding box to the
-    actual image dimensions.
-
-    This never changes the original page.
-    """
 
     if not isinstance(
         bbox,
@@ -679,15 +731,6 @@ def crop_original_question(
     image_bytes: bytes,
     bbox: Dict[str, int]
 ) -> bytes | None:
-
-    """
-    Crop the question directly from the ORIGINAL rendered page.
-
-    This is not OCR reconstruction.
-
-    The pixels displayed here originate from the original
-    examination page image.
-    """
 
     try:
 
@@ -816,11 +859,9 @@ def analyse_page(
         ]
     )
 
-    result = parse_json_response(
+    return parse_json_response(
         response.output_text
     )
-
-    return result
 
 
 # ------------------------------------------------------------
@@ -857,15 +898,7 @@ DIAGRAM DESCRIPTION:
 EXTRACTED TEXT FROM THE ORIGINAL PDF:
 {extracted_text[:16000]}
 
-Remember:
-
-The displayed original page is authoritative.
-
-Use the image to verify the mathematics before solving.
-
-Preserve mathematical accuracy.
-
-Use proper LaTeX notation for mathematical expressions.
+Use the supplied image to verify the actual question.
 """
 
     response = client.responses.create(
@@ -905,13 +938,231 @@ Use proper LaTeX notation for mathematical expressions.
             "marking_scheme": [],
             "visual_dependency": "unknown",
             "visual_check": "",
-            "confidence": "low",
-            "warning": (
-                "Model response could not be parsed as JSON."
-            )
+            "confidence": "medium",
+            "confidence_reason":
+                "The solution response format could not be parsed.",
+            "warning":
+                "Response formatting issue; mathematical confidence "
+                "was not automatically downgraded to low."
         }
 
+    result["question_number"] = question_number
+
     return result
+
+
+# ------------------------------------------------------------
+# VERIFY ONE QUESTION
+# ------------------------------------------------------------
+
+def verify_solution(
+    image_bytes: bytes,
+    page_number: int,
+    question: Dict[str, Any],
+    solution: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    image_url = image_to_data_url(
+        image_bytes
+    )
+
+    verification_input = (
+        VERIFICATION_PROMPT
+        + "\n\nPAGE NUMBER:\n"
+        + str(page_number)
+        + "\n\nQUESTION NUMBER:\n"
+        + str(
+            question.get(
+                "number",
+                solution.get(
+                    "question_number",
+                    ""
+                )
+            )
+        )
+        + "\n\nVISIBLE QUESTION SUMMARY:\n"
+        + str(
+            question.get(
+                "visible_text_summary",
+                ""
+            )
+        )
+        + "\n\nDIAGRAM DESCRIPTION:\n"
+        + str(
+            question.get(
+                "diagram_description",
+                ""
+            )
+        )
+        + "\n\nGENERATED SOLUTION:\n"
+        + json.dumps(
+            solution,
+            ensure_ascii=False,
+            indent=2
+        )
+    )
+
+    try:
+
+        response = client.responses.create(
+            model=MODEL,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+
+                        {
+                            "type": "input_text",
+                            "text": verification_input
+                        },
+
+                        {
+                            "type": "input_image",
+                            "image_url": image_url,
+                            "detail": "high"
+                        }
+
+                    ]
+                }
+            ]
+        )
+
+        result = parse_json_response(
+            response.output_text
+        )
+
+        if not result:
+
+            return {
+                "verified": False,
+                "confidence": "medium",
+                "reason":
+                    "Verification response could not be parsed.",
+                "mathematical_error": False,
+                "visual_ambiguity": False,
+                "recommended_action": "accept"
+            }
+
+        return result
+
+    except Exception as exc:
+
+        return {
+            "verified": False,
+            "confidence": "medium",
+            "reason":
+                "Verification service was unavailable: "
+                + str(exc),
+            "mathematical_error": False,
+            "visual_ambiguity": False,
+            "recommended_action": "accept"
+        }
+
+
+# ------------------------------------------------------------
+# APPLY VERIFICATION
+# ------------------------------------------------------------
+
+def apply_verification(
+    solution: Dict[str, Any],
+    verification: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    """
+    Confidence is now based primarily on genuine mathematical
+    or visual evidence.
+
+    Formatting/API problems do not automatically produce
+    a red low-confidence warning.
+    """
+
+    generated_confidence = str(
+        solution.get(
+            "confidence",
+            "medium"
+        )
+    ).lower().strip()
+
+    verified_confidence = str(
+        verification.get(
+            "confidence",
+            ""
+        )
+    ).lower().strip()
+
+    mathematical_error = bool(
+        verification.get(
+            "mathematical_error",
+            False
+        )
+    )
+
+    visual_ambiguity = bool(
+        verification.get(
+            "visual_ambiguity",
+            False
+        )
+    )
+
+    reason = str(
+        verification.get(
+            "reason",
+            ""
+        )
+    ).strip()
+
+    # Genuine error/ambiguity overrides everything.
+    if mathematical_error or visual_ambiguity:
+
+        final_confidence = "low"
+
+    elif verified_confidence in (
+        "high",
+        "medium"
+    ):
+
+        # Verification is stronger evidence than the model's
+        # initial self-assessment.
+        final_confidence = verified_confidence
+
+    elif generated_confidence in (
+        "high",
+        "medium"
+    ):
+
+        final_confidence = generated_confidence
+
+    else:
+
+        # Do not punish a response merely because the model
+        # returned an unexpected confidence string.
+        final_confidence = "medium"
+
+    solution["confidence"] = final_confidence
+
+    solution["verification"] = {
+        "verified": bool(
+            verification.get(
+                "verified",
+                False
+            )
+        ),
+        "confidence": final_confidence,
+        "reason": reason,
+        "mathematical_error": mathematical_error,
+        "visual_ambiguity": visual_ambiguity,
+        "recommended_action":
+            verification.get(
+                "recommended_action",
+                "accept"
+            )
+    }
+
+    if reason:
+
+        solution["confidence_reason"] = reason
+
+    return solution
 
 
 # ------------------------------------------------------------
@@ -922,13 +1173,6 @@ def render_math_text(
     text: Any
 ):
 
-    """
-    Render AI-generated text while allowing native LaTeX
-    mathematical notation.
-
-    The original examination paper is NOT processed here.
-    """
-
     if text is None:
         return
 
@@ -936,9 +1180,6 @@ def render_math_text(
 
     if not text:
         return
-
-    # Convert common LaTeX delimiters into Streamlit-friendly
-    # display delimiters where necessary.
 
     text = text.replace(
         "\\[",
@@ -1038,19 +1279,17 @@ def completeness_check(
     )
 
     return {
-        "questions_detected": len(
-            expected_set
-        ),
+        "questions_detected":
+            len(expected_set),
 
-        "questions_solved": len(
-            solved_set
-        ),
+        "questions_solved":
+            len(solved_set),
 
-        "missing_questions": missing,
+        "missing_questions":
+            missing,
 
-        "complete": (
+        "complete":
             len(missing) == 0
-        )
     }
 
 
@@ -1087,13 +1326,6 @@ def display_question_with_solution(
     question: Dict[str, Any],
     solution: Dict[str, Any]
 ):
-
-    """
-    Display the original question crop followed immediately
-    by its AI-generated working, final answer and marking scheme.
-
-    The question image comes directly from the original page.
-    """
 
     question_number = str(
         question.get(
@@ -1155,29 +1387,82 @@ def display_question_with_solution(
         "AI Marking Scheme"
     )
 
-    confidence = solution.get(
-        "confidence",
+    confidence = str(
+        solution.get(
+            "confidence",
+            "medium"
+        )
+    ).lower()
+
+    confidence_reason = solution.get(
+        "confidence_reason",
         ""
     )
 
-    if confidence:
+    # LOW ONLY WHEN THERE IS A REAL REASON.
+    if confidence == "high":
 
-        if confidence == "high":
+        st.success(
+            "Confidence: high"
+        )
 
-            st.success(
-                f"Confidence: {confidence}"
+    elif confidence == "medium":
+
+        st.warning(
+            "Confidence: medium"
+        )
+
+    else:
+
+        st.error(
+            "Confidence: low"
+        )
+
+    if confidence_reason:
+
+        st.caption(
+            "Verification: "
+            + str(
+                confidence_reason
+            )
+        )
+
+    verification = solution.get(
+        "verification"
+    )
+
+    if isinstance(
+        verification,
+        dict
+    ):
+
+        if verification.get(
+            "verified",
+            False
+        ):
+
+            st.caption(
+                "✓ Solution verification completed."
             )
 
-        elif confidence == "medium":
-
-            st.warning(
-                f"Confidence: {confidence}"
-            )
-
-        else:
+        if verification.get(
+            "mathematical_error",
+            False
+        ):
 
             st.error(
-                f"Confidence: {confidence}"
+                "Mathematical verification found a possible "
+                "error requiring review."
+            )
+
+        if verification.get(
+            "visual_ambiguity",
+            False
+        ):
+
+            st.warning(
+                "Visual verification found information that "
+                "may be ambiguous."
             )
 
     visual_dependency = solution.get(
@@ -1262,13 +1547,6 @@ def display_question_with_solution(
 
         st.markdown(
             "**Final Answer**"
-        )
-
-        # Use a bordered success box while still allowing
-        # mathematical notation to render.
-
-        st.success(
-            "Answer generated below."
         )
 
         render_math_text(
@@ -1433,8 +1711,11 @@ if uploaded:
                 except Exception as exc:
 
                     page_analysis = {
-                        "page_number": page_number,
+                        "page_number":
+                            page_number,
+
                         "questions": [],
+
                         "visual_warnings": [
                             str(exc)
                         ]
@@ -1442,23 +1723,26 @@ if uploaded:
 
             page_result = {
 
-                "page_number": page_number,
+                "page_number":
+                    page_number,
 
-                "questions": page_analysis.get(
-                    "questions",
-                    []
-                ),
+                "questions":
+                    page_analysis.get(
+                        "questions",
+                        []
+                    ),
 
-                "visual_warnings": page_analysis.get(
-                    "visual_warnings",
-                    []
-                ),
+                "visual_warnings":
+                    page_analysis.get(
+                        "visual_warnings",
+                        []
+                    ),
 
                 "solutions": []
             }
 
             # ------------------------------------------------
-            # STEP 3 — SOLVE QUESTIONS ON THIS PAGE
+            # STEP 3 — SOLVE QUESTIONS
             # ------------------------------------------------
 
             questions = page_result[
@@ -1527,11 +1811,36 @@ if uploaded:
                             "visual_check": "",
 
                             "confidence":
-                                "low",
+                                "medium",
+
+                            "confidence_reason":
+                                "Solution request failed.",
 
                             "warning":
                                 str(exc)
                         }
+
+                # --------------------------------------------
+                # STEP 4 — VERIFY SOLUTION
+                # --------------------------------------------
+
+                with st.status(
+                    f"Verifying Question "
+                    f"{question_number}...",
+                    expanded=False
+                ):
+
+                    verification = verify_solution(
+                        image_bytes=image_bytes,
+                        page_number=page_number,
+                        question=question,
+                        solution=solution
+                    )
+
+                    solution = apply_verification(
+                        solution,
+                        verification
+                    )
 
                 page_result[
                     "solutions"
@@ -1558,7 +1867,8 @@ if uploaded:
         )
 
         st.success(
-            "Visual scan and marking-scheme generation completed."
+            "Visual scan, solution generation and "
+            "verification completed."
         )
 
 
@@ -1663,10 +1973,6 @@ if results:
             f"📄 Page {page_number}"
         )
 
-        # ----------------------------------------------------
-        # ORIGINAL FULL PAGE FIRST
-        # ----------------------------------------------------
-
         if (
             page_number
             <= len(
@@ -1685,10 +1991,6 @@ if results:
                 page_number
             )
 
-        # ----------------------------------------------------
-        # VISUAL WARNINGS
-        # ----------------------------------------------------
-
         warnings = page_result.get(
             "visual_warnings",
             []
@@ -1705,10 +2007,6 @@ if results:
                     st.warning(
                         warning
                     )
-
-        # ----------------------------------------------------
-        # QUESTION-BY-QUESTION OUTPUT
-        # ----------------------------------------------------
 
         questions = page_result.get(
             "questions",
@@ -1776,7 +2074,10 @@ if results:
                         "visual_check": "",
 
                         "confidence":
-                            "low",
+                            "medium",
+
+                        "confidence_reason":
+                            "No solution was generated.",
 
                         "warning":
                             "No solution was generated."
@@ -1886,10 +2187,15 @@ else:
 
         **5. AI generates the mathematical working**
 
-        **6. Each original question is shown with its
+        **6. The solution is independently checked**
+
+        **7. Confidence is based on genuine mathematical
+        or visual evidence**
+
+        **8. Each original question is shown with its
         working immediately underneath**
 
-        **7. AI-generated mathematics is rendered using
+        **9. AI-generated mathematics is rendered using
         native mathematical notation**
 
         This is deliberately different from an OCR-only pipeline.
