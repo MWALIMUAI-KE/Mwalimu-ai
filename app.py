@@ -692,7 +692,27 @@ LOW confidence MUST NOT be used merely because:
 - formatting is imperfect;
 - a technical service failed.
 GRAPHING ENGINE REQUIREMENTS:
+GRAPH VERIFICATION:
 
+If the question requires a graph, independently verify:
+
+- the equation or function
+- graph type
+- domain
+- supplied coordinates
+- table values
+- intercepts
+- axis labels
+- point requirements
+- joining requirements
+- general mathematical shape
+
+A technical failure to render a graph is NOT itself a
+mathematical error.
+
+A wrong equation, wrong coordinates, wrong domain, wrong
+graph type, or mathematically incorrect graph specification
+IS a genuine mathematical error.
 If the question asks the candidate to draw, plot, sketch,
 complete, or construct a mathematical graph, identify the
 graph requirements precisely.
