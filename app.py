@@ -1616,7 +1616,7 @@ def apply_verification(
 # ============================================================
 
 def render_math_text(
-    text: Any
+text: Any
 ):
 # ============================================================
 # 📈 PP2 GRAPHING ENGINE V1
