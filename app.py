@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sympy as sp
 
+
 # ============================================================
 # MWALIMU AI — MVP3.2 VISUAL MARKING
 # FINAL MATHS POLISH
@@ -68,8 +69,6 @@ MODEL = os.getenv(
 MAX_PAGE_DIMENSION = 1800
 JPEG_QUALITY = 88
 
-# Extra crop margin helps preserve nearby labels,
-# diagram dimensions and mathematical notation.
 QUESTION_CROP_MARGIN = 0.06
 
 
@@ -520,10 +519,83 @@ If a diagram is involved:
 - use the ACTUAL visible labels;
 - use the ACTUAL visible measurements;
 - use the ACTUAL visible angles;
-- use the ACTUAL coordinates;
+- use the ACTUAL visible coordinates;
 - use the actual relationships shown;
 - do not invent missing dimensions;
 - do not assume a diagram is to scale unless the question says so.
+
+============================================================
+GRAPHING
+============================================================
+
+If the question requires a graph, independently identify and
+preserve:
+
+- the equation or function;
+- graph type;
+- domain;
+- supplied coordinates;
+- table values;
+- intercepts;
+- axis labels;
+- point requirements;
+- joining requirements;
+- shading requirements;
+- specified scale or axis limits.
+
+Do NOT claim that a graph has already been drawn by the AI.
+
+Instead, return a graph_spec that allows the application to
+generate the graph mathematically.
+
+For PP2 V1, use only these graph types:
+
+- line
+- quadratic
+- function
+- points
+
+Use canonical mathematical expressions such as:
+
+2*x+3
+x**2-4*x+3
+sin(x)
+cos(x)
+
+Do not place arbitrary Python code inside graph_spec.
+
+If the question does NOT require a graph:
+
+"required": false
+
+If it DOES require a graph:
+
+"required": true
+
+Return this graph_spec structure:
+
+{
+  "required": false,
+  "graph_type": "none | line | quadratic | function | points",
+  "expression": "",
+  "x_values": [],
+  "y_values": [],
+  "x_min": -10,
+  "x_max": 10,
+  "y_min": null,
+  "y_max": null,
+  "x_label": "x",
+  "y_label": "y",
+  "show_points": false,
+  "connect_points": false,
+  "shade": false,
+  "shade_direction": "",
+  "angle_unit": "radians",
+  "title": ""
+}
+
+Never invent a domain, range, scale, coordinate or graph
+requirement that is not supported by the question.
 
 ============================================================
 CONFIDENCE
@@ -579,7 +651,27 @@ Return JSON only:
 
   "visual_dependency": "none | low | medium | high",
 
-  "visual_check": "...",graph_spec
+  "visual_check": "...",
+
+  "graph_spec": {
+    "required": false,
+    "graph_type": "none",
+    "expression": "",
+    "x_values": [],
+    "y_values": [],
+    "x_min": -10,
+    "x_max": 10,
+    "y_min": null,
+    "y_max": null,
+    "x_label": "x",
+    "y_label": "y",
+    "show_points": false,
+    "connect_points": false,
+    "shade": false,
+    "shade_direction": "",
+    "angle_unit": "radians",
+    "title": ""
+  },
 
   "confidence": "high | medium | low",
 
@@ -676,6 +768,74 @@ If a diagram is involved:
 - do not invent missing information.
 
 ============================================================
+GRAPH VERIFICATION
+============================================================
+
+If the question requires a graph, independently verify:
+
+- the equation or function;
+- graph type;
+- domain;
+- supplied coordinates;
+- table values;
+- intercepts;
+- axis labels;
+- point requirements;
+- joining requirements;
+- general mathematical shape.
+
+A technical failure to render a graph is NOT itself a
+mathematical error.
+
+A wrong equation, wrong coordinates, wrong domain, wrong
+graph type, or mathematically incorrect graph specification
+IS a genuine mathematical error.
+
+If the question asks the candidate to draw, plot, sketch,
+complete, or construct a mathematical graph, identify the
+graph requirements precisely.
+
+Read and preserve:
+
+- the equation or function;
+- graph type;
+- x-values and y-values;
+- coordinates;
+- intercepts;
+- domain;
+- range;
+- axis labels;
+- specified scale;
+- specified x and y limits;
+- whether points must be shown;
+- whether points must be joined;
+- whether shading is required;
+- angle units where relevant.
+
+Do NOT claim that a graph has been drawn by the AI.
+
+Instead, verify the graph_spec that allows the application
+to generate the graph mathematically.
+
+For PP2 V1, use only these graph types:
+
+- line
+- quadratic
+- function
+- points
+
+If the question does NOT require a graph:
+
+"required": false
+
+If it DOES require a graph:
+
+"required": true
+
+Never invent a domain, range, scale, coordinate or graph
+requirement that is not supported by the question.
+
+============================================================
 CONFIDENCE RULE
 ============================================================
 
@@ -691,102 +851,7 @@ LOW confidence MUST NOT be used merely because:
 - the verifier has general uncertainty;
 - formatting is imperfect;
 - a technical service failed.
-GRAPHING ENGINE REQUIREMENTS:
-GRAPH VERIFICATION:
 
-If the question requires a graph, independently verify:
-
-- the equation or function
-- graph type
-- domain
-- supplied coordinates
-- table values
-- intercepts
-- axis labels
-- point requirements
-- joining requirements
-- general mathematical shape
-
-A technical failure to render a graph is NOT itself a
-mathematical error.
-
-A wrong equation, wrong coordinates, wrong domain, wrong
-graph type, or mathematically incorrect graph specification
-IS a genuine mathematical error.
-If the question asks the candidate to draw, plot, sketch,
-complete, or construct a mathematical graph, identify the
-graph requirements precisely.
-
-Read and preserve:
-
-- the equation or function
-- graph type
-- x-values and y-values
-- coordinates
-- intercepts
-- domain
-- range
-- axis labels
-- specified scale
-- specified x and y limits
-- whether points must be shown
-- whether points must be joined
-- whether shading is required
-- angle units where relevant
-
-Do NOT claim that a graph has been drawn by the AI.
-
-Instead, return a graph_spec that allows the application to
-generate the graph mathematically.
-
-For PP2 V1, use only these graph types:
-
-- line
-- quadratic
-- function
-- points
-
-Use canonical mathematical expressions such as:
-
-2*x+3
-x**2-4*x+3
-sin(x)
-cos(x)
-
-Do not place arbitrary Python code inside graph_spec.
-
-If the question does NOT require a graph:
-
-"required": false
-
-If it DOES require a graph:
-
-"required": true
-
-Return this graph_spec structure:
-
-{
-  "required": false,
-  "graph_type": "none | line | quadratic | function | points",
-  "expression": "",
-  "x_values": [],
-  "y_values": [],
-  "x_min": -10,
-  "x_max": 10,
-  "y_min": null,
-  "y_max": null,
-  "x_label": "x",
-  "y_label": "y",
-  "show_points": false,
-  "connect_points": false,
-  "shade": false,
-  "shade_direction": "",
-  "angle_unit": "radians",
-  "title": ""
-}
-
-Never invent a domain, range, scale, coordinate or graph
-requirement that is not supported by the question.
 LOW is ONLY permitted when:
 
 A. There is a genuine mathematical error.
@@ -840,16 +905,26 @@ def parse_json_response(
 
     try:
 
-        parsed = json.loads(text)
+        parsed = json.loads(
+            text
+        )
 
-        if isinstance(parsed, dict):
+        if isinstance(
+            parsed,
+            dict
+        ):
             return parsed
 
     except Exception:
         pass
 
-    start = text.find("{")
-    end = text.rfind("}")
+    start = text.find(
+        "{"
+    )
+
+    end = text.rfind(
+        "}"
+    )
 
     if start >= 0 and end > start:
 
@@ -859,7 +934,10 @@ def parse_json_response(
                 text[start:end + 1]
             )
 
-            if isinstance(parsed, dict):
+            if isinstance(
+                parsed,
+                dict
+            ):
                 return parsed
 
         except Exception:
@@ -973,7 +1051,9 @@ def crop_original_question(
             io.BytesIO(
                 image_bytes
             )
-        ).convert("RGB")
+        ).convert(
+            "RGB"
+        )
 
         image_width, image_height = image.size
 
@@ -991,22 +1071,20 @@ def crop_original_question(
         width = safe_bbox["width"]
         height = safe_bbox["height"]
 
-        # Generous margin is deliberate.
-        # It protects against cutting off:
-        #   - a denominator
-        #   - a superscript
-        #   - a radical
-        #   - an equation continuation
-        #   - diagram labels
-        #   - angle measurements
         margin_x = max(
             18,
-            int(width * QUESTION_CROP_MARGIN)
+            int(
+                width
+                * QUESTION_CROP_MARGIN
+            )
         )
 
         margin_y = max(
             18,
-            int(height * QUESTION_CROP_MARGIN)
+            int(
+                height
+                * QUESTION_CROP_MARGIN
+            )
         )
 
         crop = image.crop(
@@ -1072,7 +1150,9 @@ def analyse_page(
                         "text":
                             PAGE_ANALYSIS_PROMPT
                             + "\n\nPAGE NUMBER:\n"
-                            + str(page_number)
+                            + str(
+                                page_number
+                            )
                             + "\n\nSUPPORTING PDF TEXT:\n"
                             + extracted_text[:12000]
                     },
@@ -1120,7 +1200,9 @@ def solve_question(
     prompt = (
         SOLUTION_PROMPT
         + "\n\nPAGE NUMBER:\n"
-        + str(page_number)
+        + str(
+            page_number
+        )
         + "\n\nQUESTION NUMBER:\n"
         + question_number
         + "\n\nVISIBLE QUESTION SUMMARY:\n"
@@ -1157,7 +1239,6 @@ def solve_question(
         }
     ]
 
-    # The isolated question is the PRIMARY image.
     if question_image_bytes:
 
         content.append(
@@ -1185,7 +1266,6 @@ def solve_question(
             }
         )
 
-    # Full page remains available as visual context.
     content.append(
         {
             "type": "input_text",
@@ -1254,6 +1334,27 @@ def solve_question(
                 "visual_check":
                     "",
 
+                "graph_spec":
+                    {
+                        "required": False,
+                        "graph_type": "none",
+                        "expression": "",
+                        "x_values": [],
+                        "y_values": [],
+                        "x_min": -10,
+                        "x_max": 10,
+                        "y_min": None,
+                        "y_max": None,
+                        "x_label": "x",
+                        "y_label": "y",
+                        "show_points": False,
+                        "connect_points": False,
+                        "shade": False,
+                        "shade_direction": "",
+                        "angle_unit": "radians",
+                        "title": ""
+                    },
+
                 "confidence":
                     "medium",
 
@@ -1298,6 +1399,27 @@ def solve_question(
             "visual_check":
                 "",
 
+            "graph_spec":
+                {
+                    "required": False,
+                    "graph_type": "none",
+                    "expression": "",
+                    "x_values": [],
+                    "y_values": [],
+                    "x_min": -10,
+                    "x_max": 10,
+                    "y_min": None,
+                    "y_max": None,
+                    "x_label": "x",
+                    "y_label": "y",
+                    "show_points": False,
+                    "connect_points": False,
+                    "shade": False,
+                    "shade_direction": "",
+                    "angle_unit": "radians",
+                    "title": ""
+                },
+
             "confidence":
                 "medium",
 
@@ -1306,7 +1428,9 @@ def solve_question(
                 "This is not evidence of a mathematical error.",
 
             "warning":
-                str(exc)
+                str(
+                    exc
+                )
         }
 
 
@@ -1327,7 +1451,9 @@ def verify_solution(
         VERIFICATION_PROMPT
 
         + "\n\nPAGE NUMBER:\n"
-        + str(page_number)
+        + str(
+            page_number
+        )
 
         + "\n\nQUESTION METADATA:\n"
         + json.dumps(
@@ -1352,7 +1478,6 @@ def verify_solution(
         }
     ]
 
-    # Primary verification image.
     if question_image_bytes:
 
         content.append(
@@ -1471,7 +1596,9 @@ def verify_solution(
                 "accept",
 
             "technical_error":
-                str(exc)
+                str(
+                    exc
+                )
         }
 
 
@@ -1514,16 +1641,6 @@ def apply_verification(
             ""
         )
     ).lower().strip()
-
-    # ========================================================
-    # STRICT CONFIDENCE GATE
-    # ========================================================
-    #
-    # LOW requires actual evidence.
-    #
-    # Technical problems cannot create LOW.
-    #
-    # ========================================================
 
     if (
         mathematical_error
@@ -1614,9 +1731,46 @@ def apply_verification(
 # ============================================================
 # LATEX RENDERING
 # ============================================================
+
 def render_math_text(
-text: Any
+    text: Any
 ):
+
+    if text is None:
+        return
+
+    text = str(
+        text
+    ).strip()
+
+    if not text:
+        return
+
+    text = text.replace(
+        "\\[",
+        "$$"
+    )
+
+    text = text.replace(
+        "\\]",
+        "$$"
+    )
+
+    text = text.replace(
+        "\\(",
+        "$"
+    )
+
+    text = text.replace(
+        "\\)",
+        "$"
+    )
+
+    st.markdown(
+        text
+    )
+
+
 # ============================================================
 # 📈 PP2 GRAPHING ENGINE V1
 # ============================================================
@@ -1635,12 +1789,18 @@ GRAPH_SAFE_LOCALS = {
 }
 
 
-def _safe_graph_expression(expression: str):
+def _safe_graph_expression(
+    expression: str
+):
+
     """Safely convert a mathematical expression into SymPy."""
+
     if not expression:
         return None
 
-    expression = str(expression).strip()
+    expression = str(
+        expression
+    ).strip()
 
     expression = re.sub(
         r"^\s*y\s*=\s*",
@@ -1649,62 +1809,104 @@ def _safe_graph_expression(expression: str):
         flags=re.IGNORECASE
     )
 
-    expression = expression.replace("^", "**")
-    expression = expression.replace("$", "")
+    expression = expression.replace(
+        "^",
+        "**"
+    )
+
+    expression = expression.replace(
+        "$",
+        ""
+    )
 
     try:
+
         return sp.sympify(
             expression,
             locals=GRAPH_SAFE_LOCALS
         )
+
     except Exception:
+
         return None
 
 
-def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
+def render_graph(
+    graph_spec: Dict[str, Any]
+) -> Optional[bytes]:
+
     """Render a mathematical graph from the verified graph specification."""
 
-    if not isinstance(graph_spec, dict):
+    if not isinstance(
+        graph_spec,
+        dict
+    ):
         return None
 
-    if not graph_spec.get("required", False):
+    if not graph_spec.get(
+        "required",
+        False
+    ):
         return None
 
     graph_type = str(
-        graph_spec.get("graph_type", "none")
+        graph_spec.get(
+            "graph_type",
+            "none"
+        )
     ).lower().strip()
 
     if graph_type == "none":
         return None
 
     try:
-        x = sp.symbols("x")
 
-        fig, ax = plt.subplots(figsize=(9, 6))
+        x = sp.symbols(
+            "x"
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(9, 6)
+        )
 
         # ----------------------------------------------------
         # X RANGE
         # ----------------------------------------------------
+
         try:
+
             x_min = float(
-                graph_spec.get("x_min", -10)
+                graph_spec.get(
+                    "x_min",
+                    -10
+                )
             )
+
         except Exception:
+
             x_min = -10.0
 
         try:
+
             x_max = float(
-                graph_spec.get("x_max", 10)
+                graph_spec.get(
+                    "x_max",
+                    10
+                )
             )
+
         except Exception:
+
             x_max = 10.0
 
         if x_min >= x_max:
+
             x_min, x_max = -10.0, 10.0
 
         # ----------------------------------------------------
         # FUNCTION / LINE / QUADRATIC
         # ----------------------------------------------------
+
         if graph_type in (
             "line",
             "quadratic",
@@ -1721,17 +1923,27 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
             )
 
             if sympy_expr is None:
-                plt.close(fig)
+
+                plt.close(
+                    fig
+                )
+
                 return None
 
             try:
+
                 function = sp.lambdify(
                     x,
                     sympy_expr,
                     modules="numpy"
                 )
+
             except Exception:
-                plt.close(fig)
+
+                plt.close(
+                    fig
+                )
+
                 return None
 
             x_data = np.linspace(
@@ -1743,19 +1955,24 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
             # ------------------------------------------------
             # DEGREE / RADIAN SUPPORT
             # ------------------------------------------------
+
             angle_unit = str(
                 graph_spec.get(
                     "angle_unit",
                     "radians"
-                )).lower()
+                )
+            ).lower()
 
             evaluation_x = (
-                np.pi / 180.0 * x_data
+                np.pi
+                / 180.0
+                * x_data
                 if angle_unit == "degrees"
                 else x_data
             )
 
             try:
+
                 y_data = function(
                     evaluation_x
                 )
@@ -1766,11 +1983,17 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
                 )
 
             except Exception:
-                plt.close(fig)
+
+                plt.close(
+                    fig
+                )
+
                 return None
 
             y_data = np.where(
-                np.isfinite(y_data),
+                np.isfinite(
+                    y_data
+                ),
                 y_data,
                 np.nan
             )
@@ -1784,6 +2007,7 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
         # ----------------------------------------------------
         # POINTS
         # ----------------------------------------------------
+
         elif graph_type == "points":
 
             x_values = graph_spec.get(
@@ -1797,30 +2021,55 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
             )
 
             if (
-                not isinstance(x_values, list)
-                or not isinstance(y_values, list)
+                not isinstance(
+                    x_values,
+                    list
+                )
+                or not isinstance(
+                    y_values,
+                    list
+                )
             ):
-                plt.close(fig)
+
+                plt.close(
+                    fig
+                )
+
                 return None
 
             if (
                 len(x_values) == 0
                 or len(x_values) != len(y_values)
             ):
-                plt.close(fig)
+
+                plt.close(
+                    fig
+                )
+
                 return None
 
             try:
+
                 x_data = np.asarray(
-                    [float(v) for v in x_values]
+                    [
+                        float(v)
+                        for v in x_values
+                    ]
                 )
 
                 y_data = np.asarray(
-                    [float(v) for v in y_values]
+                    [
+                        float(v)
+                        for v in y_values
+                    ]
                 )
 
             except Exception:
-                plt.close(fig)
+
+                plt.close(
+                    fig
+                )
+
                 return None
 
             ax.scatter(
@@ -1833,6 +2082,7 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
                 "connect_points",
                 False
             ):
+
                 ax.plot(
                     x_data,
                     y_data,
@@ -1840,12 +2090,17 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
                 )
 
         else:
-            plt.close(fig)
+
+            plt.close(
+                fig
+            )
+
             return None
 
         # ----------------------------------------------------
         # AXES
         # ----------------------------------------------------
+
         ax.axhline(
             0,
             linewidth=1
@@ -1882,23 +2137,39 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
         # ----------------------------------------------------
         # Y RANGE
         # ----------------------------------------------------
-        y_min = graph_spec.get("y_min")
-        y_max = graph_spec.get("y_max")
+
+        y_min = graph_spec.get(
+            "y_min"
+        )
+
+        y_max = graph_spec.get(
+            "y_max"
+        )
 
         try:
+
             if (
                 y_min is not None
                 and y_max is not None
             ):
-                y_min = float(y_min)
-                y_max = float(y_max)
+
+                y_min = float(
+                    y_min
+                )
+
+                y_max = float(
+                    y_max
+                )
 
                 if y_min < y_max:
+
                     ax.set_ylim(
                         y_min,
                         y_max
                     )
+
         except Exception:
+
             pass
 
         ax.set_xlim(
@@ -1909,6 +2180,7 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
         # ----------------------------------------------------
         # TITLE
         # ----------------------------------------------------
+
         title = str(
             graph_spec.get(
                 "title",
@@ -1917,13 +2189,17 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
         ).strip()
 
         if title:
-            ax.set_title(title)
+
+            ax.set_title(
+                title
+            )
 
         plt.tight_layout()
 
         # ----------------------------------------------------
         # EXPORT GRAPH
         # ----------------------------------------------------
+
         output = io.BytesIO()
 
         fig.savefig(
@@ -1933,51 +2209,25 @@ def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
             bbox_inches="tight"
         )
 
-        plt.close(fig)
+        plt.close(
+            fig
+        )
 
         return output.getvalue()
 
     except Exception:
 
         try:
-            plt.close("all")
+
+            plt.close(
+                "all"
+            )
+
         except Exception:
+
             pass
 
         return None
-    if text is None:
-        return
-
-    text = str(
-        text
-    ).strip()
-
-    if not text:
-        return
-
-    text = text.replace(
-        "\\[",
-        "$$"
-    )
-
-    text = text.replace(
-        "\\]",
-        "$$"
-    )
-
-    text = text.replace(
-        "\\(",
-        "$"
-    )
-
-    text = text.replace(
-        "\\)",
-        "$"
-    )
-
-    st.markdown(
-        text
-    )
 
 
 # ============================================================
@@ -2044,7 +2294,10 @@ def completeness_check(
         solved
     )
 
-    missing_keys = expected_set - solved_set
+    missing_keys = (
+        expected_set
+        - solved_set
+    )
 
     missing_questions = []
 
@@ -2072,7 +2325,9 @@ def completeness_check(
     return {
 
         "questions_detected":
-            len(expected_set),
+            len(
+                expected_set
+            ),
 
         "questions_solved":
             len(
@@ -2084,7 +2339,9 @@ def completeness_check(
             missing_questions,
 
         "complete":
-            len(missing_questions) == 0
+            len(
+                missing_questions
+            ) == 0
     }
 
 
@@ -2186,7 +2443,9 @@ def display_question(
 
         st.caption(
             "Verification: "
-            + str(reason)
+            + str(
+                reason
+            )
         )
 
     verification = solution.get(
@@ -2307,6 +2566,7 @@ def display_question(
         render_math_text(
             final_answer
         )
+
     # ========================================================
     # 📈 GENERATED GRAPH
     # ========================================================
@@ -2317,11 +2577,19 @@ def display_question(
     )
 
     if (
-        isinstance(graph_spec, dict)
-        and graph_spec.get("required", False)
+        isinstance(
+            graph_spec,
+            dict
+        )
+        and graph_spec.get(
+            "required",
+            False
+        )
     ):
 
-        st.markdown("### 📈 Generated Graph")
+        st.markdown(
+            "### 📈 Generated Graph"
+        )
 
         graph_png = render_graph(
             graph_spec
@@ -2351,6 +2619,7 @@ def display_question(
                 "but the graph specification could "
                 "not be rendered."
             )
+
     marking = solution.get(
         "marking_scheme",
         []
@@ -2396,7 +2665,9 @@ def display_question(
 
         st.warning(
             "⚠️ "
-            + str(warning)
+            + str(
+                warning
+            )
         )
 
 
@@ -2523,7 +2794,9 @@ if uploaded:
 
                         "visual_warnings":
                             [
-                                str(exc)
+                                str(
+                                    exc
+                                )
                             ]
                     }
 
@@ -2947,8 +3220,7 @@ if results:
                         "visible_text_summary",
                         ""
                     )
-                )
-                .lower()
+                ).lower()
             )
 
             features = " ".join(
