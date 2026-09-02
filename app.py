@@ -1523,7 +1523,334 @@ def apply_verification(
 def render_math_text(
     text: Any
 ):
+# ============================================================
+# 📈 PP2 GRAPHING ENGINE V1
+# ============================================================
 
+GRAPH_SAFE_LOCALS = {
+    "x": sp.symbols("x"),
+    "sin": sp.sin,
+    "cos": sp.cos,
+    "tan": sp.tan,
+    "exp": sp.exp,
+    "sqrt": sp.sqrt,
+    "log": sp.log,
+    "pi": sp.pi,
+    "E": sp.E,
+    "Abs": sp.Abs,
+}
+
+
+def _safe_graph_expression(expression: str):
+    """Safely convert a mathematical expression into SymPy."""
+    if not expression:
+        return None
+
+    expression = str(expression).strip()
+
+    expression = re.sub(
+        r"^\s*y\s*=\s*",
+        "",
+        expression,
+        flags=re.IGNORECASE
+    )
+
+    expression = expression.replace("^", "**")
+    expression = expression.replace("$", "")
+
+    try:
+        return sp.sympify(
+            expression,
+            locals=GRAPH_SAFE_LOCALS
+        )
+    except Exception:
+        return None
+
+
+def render_graph(graph_spec: Dict[str, Any]) -> Optional[bytes]:
+    """Render a mathematical graph from the verified graph specification."""
+
+    if not isinstance(graph_spec, dict):
+        return None
+
+    if not graph_spec.get("required", False):
+        return None
+
+    graph_type = str(
+        graph_spec.get("graph_type", "none")
+    ).lower().strip()
+
+    if graph_type == "none":
+        return None
+
+    try:
+        x = sp.symbols("x")
+
+        fig, ax = plt.subplots(figsize=(9, 6))
+
+        # ----------------------------------------------------
+        # X RANGE
+        # ----------------------------------------------------
+        try:
+            x_min = float(
+                graph_spec.get("x_min", -10)
+            )
+        except Exception:
+            x_min = -10.0
+
+        try:
+            x_max = float(
+                graph_spec.get("x_max", 10)
+            )
+        except Exception:
+            x_max = 10.0
+
+        if x_min >= x_max:
+            x_min, x_max = -10.0, 10.0
+
+        # ----------------------------------------------------
+        # FUNCTION / LINE / QUADRATIC
+        # ----------------------------------------------------
+        if graph_type in (
+            "line",
+            "quadratic",
+            "function"
+        ):
+
+            expression = graph_spec.get(
+                "expression",
+                ""
+            )
+
+            sympy_expr = _safe_graph_expression(
+                expression
+            )
+
+            if sympy_expr is None:
+                plt.close(fig)
+                return None
+
+            try:
+                function = sp.lambdify(
+                    x,
+                    sympy_expr,
+                    modules="numpy"
+                )
+            except Exception:
+                plt.close(fig)
+                return None
+
+            x_data = np.linspace(
+                x_min,
+                x_max,
+                1000
+            )
+
+            # ------------------------------------------------
+            # DEGREE / RADIAN SUPPORT
+            # ------------------------------------------------
+            angle_unit = str(
+                graph_spec.get(
+                    "angle_unit",
+                    "radians"
+                )).lower()
+
+            evaluation_x = (
+                np.pi / 180.0 * x_data
+                if angle_unit == "degrees"
+                else x_data
+            )
+
+            try:
+                y_data = function(
+                    evaluation_x
+                )
+
+                y_data = np.asarray(
+                    y_data,
+                    dtype=float
+                )
+
+            except Exception:
+                plt.close(fig)
+                return None
+
+            y_data = np.where(
+                np.isfinite(y_data),
+                y_data,
+                np.nan
+            )
+
+            ax.plot(
+                x_data,
+                y_data,
+                linewidth=2
+            )
+
+        # ----------------------------------------------------
+        # POINTS
+        # ----------------------------------------------------
+        elif graph_type == "points":
+
+            x_values = graph_spec.get(
+                "x_values",
+                []
+            )
+
+            y_values = graph_spec.get(
+                "y_values",
+                []
+            )
+
+            if (
+                not isinstance(x_values, list)
+                or not isinstance(y_values, list)
+            ):
+                plt.close(fig)
+                return None
+
+            if (
+                len(x_values) == 0
+                or len(x_values) != len(y_values)
+            ):
+                plt.close(fig)
+                return None
+
+            try:
+                x_data = np.asarray(
+                    [float(v) for v in x_values]
+                )
+
+                y_data = np.asarray(
+                    [float(v) for v in y_values]
+                )
+
+            except Exception:
+                plt.close(fig)
+                return None
+
+            ax.scatter(
+                x_data,
+                y_data,
+                s=45
+            )
+
+            if graph_spec.get(
+                "connect_points",
+                False
+            ):
+                ax.plot(
+                    x_data,
+                    y_data,
+                    linewidth=2
+                )
+
+        else:
+            plt.close(fig)
+            return None
+
+        # ----------------------------------------------------
+        # AXES
+        # ----------------------------------------------------
+        ax.axhline(
+            0,
+            linewidth=1
+        )
+
+        ax.axvline(
+            0,
+            linewidth=1
+        )
+
+        ax.grid(
+            True,
+            alpha=0.3
+        )
+
+        ax.set_xlabel(
+            str(
+                graph_spec.get(
+                    "x_label",
+                    "x"
+                )
+            )
+        )
+
+        ax.set_ylabel(
+            str(
+                graph_spec.get(
+                    "y_label",
+                    "y"
+                )
+            )
+        )
+
+        # ----------------------------------------------------
+        # Y RANGE
+        # ----------------------------------------------------
+        y_min = graph_spec.get("y_min")
+        y_max = graph_spec.get("y_max")
+
+        try:
+            if (
+                y_min is not None
+                and y_max is not None
+            ):
+                y_min = float(y_min)
+                y_max = float(y_max)
+
+                if y_min < y_max:
+                    ax.set_ylim(
+                        y_min,
+                        y_max
+                    )
+        except Exception:
+            pass
+
+        ax.set_xlim(
+            x_min,
+            x_max
+        )
+
+        # ----------------------------------------------------
+        # TITLE
+        # ----------------------------------------------------
+        title = str(
+            graph_spec.get(
+                "title",
+                ""
+            )
+        ).strip()
+
+        if title:
+            ax.set_title(title)
+
+        plt.tight_layout()
+
+        # ----------------------------------------------------
+        # EXPORT GRAPH
+        # ----------------------------------------------------
+        output = io.BytesIO()
+
+        fig.savefig(
+            output,
+            format="png",
+            dpi=160,
+            bbox_inches="tight"
+        )
+
+        plt.close(fig)
+
+        return output.getvalue()
+
+    except Exception:
+
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+
+        return None
     if text is None:
         return
 
