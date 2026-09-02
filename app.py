@@ -3,7 +3,7 @@ import io
 import re
 import json
 import base64
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 
 import streamlit as st
 import fitz
@@ -12,19 +12,31 @@ from openai import OpenAI
 
 
 # ============================================================
-# MWALIMU AI — MVP3.2 CLEAN MARKING SCHEME TEST
+# MWALIMU AI — MVP3.2 VISUAL MARKING
+# FINAL MATHS POLISH
 # ============================================================
+#
+# MAIN TARGETS:
+#   1. SURDS
+#   2. INTEGRATION
+#   3. MAKING THE SUBJECT OF A FORMULA
 #
 # ORIGINAL PDF = VISUAL SOURCE OF TRUTH
 #
-# LOW CONFIDENCE IS ONLY ALLOWED FOR:
-#   1. Genuine mathematical error
-#   2. Genuine essential visual ambiguity
+# The original page is preserved.
+# Individual questions are isolated visually.
+# The solver receives:
+#   - the isolated original question
+#   - the complete original page
+#   - supporting PDF text
 #
-# Technical/API/JSON/formatting issues NEVER automatically
-# produce LOW confidence.
+# The verifier independently checks the solution.
 #
-# This version does NOT add construction or graph generation yet.
+# LOW CONFIDENCE is ONLY allowed for:
+#   - genuine mathematical error
+#   - genuine essential visual ambiguity
+#
+# Technical/API/parser problems NEVER automatically become LOW.
 # ============================================================
 
 
@@ -53,6 +65,10 @@ MODEL = os.getenv(
 
 MAX_PAGE_DIMENSION = 1800
 JPEG_QUALITY = 88
+
+# Extra crop margin helps preserve nearby labels,
+# diagram dimensions and mathematical notation.
+QUESTION_CROP_MARGIN = 0.06
 
 
 # ============================================================
@@ -97,7 +113,9 @@ if "paper_name" not in st.session_state:
 # PDF RENDERING
 # ============================================================
 
-def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
+def render_pdf_pages(
+    pdf_bytes: bytes
+) -> List[bytes]:
 
     pages = []
 
@@ -106,36 +124,40 @@ def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
         filetype="pdf"
     )
 
-    for page in document:
+    try:
 
-        rect = page.rect
+        for page in document:
 
-        scale = MAX_PAGE_DIMENSION / max(
-            rect.width,
-            rect.height
-        )
+            rect = page.rect
 
-        scale = min(
-            scale,
-            2.5
-        )
-
-        pix = page.get_pixmap(
-            matrix=fitz.Matrix(
-                scale,
-                scale
-            ),
-            alpha=False
-        )
-
-        pages.append(
-            pix.tobytes(
-                "jpeg",
-                jpg_quality=JPEG_QUALITY
+            scale = MAX_PAGE_DIMENSION / max(
+                rect.width,
+                rect.height
             )
-        )
 
-    document.close()
+            scale = min(
+                scale,
+                2.5
+            )
+
+            pix = page.get_pixmap(
+                matrix=fitz.Matrix(
+                    scale,
+                    scale
+                ),
+                alpha=False
+            )
+
+            pages.append(
+                pix.tobytes(
+                    "jpeg",
+                    jpg_quality=JPEG_QUALITY
+                )
+            )
+
+    finally:
+
+        document.close()
 
     return pages
 
@@ -155,18 +177,22 @@ def extract_page_texts(
         filetype="pdf"
     )
 
-    for page in document:
+    try:
 
-        try:
-            text = page.get_text("text")
-        except Exception:
-            text = ""
+        for page in document:
 
-        texts.append(
-            text.strip()
-        )
+            try:
+                text = page.get_text("text")
+            except Exception:
+                text = ""
 
-    document.close()
+            texts.append(
+                text.strip()
+            )
+
+    finally:
+
+        document.close()
 
     return texts
 
@@ -190,7 +216,7 @@ def image_to_data_url(
 
 
 # ============================================================
-# PAGE ANALYSIS
+# PAGE ANALYSIS PROMPT
 # ============================================================
 
 PAGE_ANALYSIS_PROMPT = r"""
@@ -206,18 +232,59 @@ Do not solve the questions.
 
 For every question provide an approximate bounding box in pixels.
 
-The box must include the COMPLETE visible question, including:
+The bounding box must include the COMPLETE visible question,
+including:
 
+- question number
 - question text
 - fractions
-- powers
-- roots
-- mathematical symbols
+- numerators and denominators
+- powers and indices
+- roots and surds
+- algebraic expressions
+- brackets
+- mathematical signs
+- equations
 - diagrams
 - graphs
 - constructions
 - tables
+- coordinates
+- angle labels
+- dimensions
 - answer choices
+
+IMPORTANT:
+
+For mathematical questions, preserve the visual structure.
+
+For example, distinguish:
+
+    sqrt(2x)
+
+from:
+
+    sqrt(2) x
+
+and distinguish:
+
+    x^2
+
+from:
+
+    2x
+
+and distinguish:
+
+    1/(x+2)
+
+from:
+
+    1/x + 2
+
+Do not invent missing information.
+
+If a diagram is visible, identify it explicitly.
 
 Return JSON only:
 
@@ -243,6 +310,7 @@ Return JSON only:
       "has_graph": false,
       "has_table": false,
       "has_construction": false,
+
       "has_special_math_notation": false,
 
       "important_visual_features": []
@@ -251,27 +319,184 @@ Return JSON only:
 
   "visual_warnings": []
 }
-
-Do not invent missing information.
-
-Do not solve questions.
-
-If a diagram is visible, identify it explicitly.
 """
 
 
 # ============================================================
-# SOLUTION PROMPT
+# SPECIALISED MATHEMATICS SOLUTION PROMPT
 # ============================================================
 
 SOLUTION_PROMPT = r"""
-You are the senior mathematics examiner for Mwalimu AI.
+You are the SENIOR MATHEMATICS EXAMINER for Mwalimu AI.
 
-Solve the question using the ORIGINAL examination page image.
+You must solve the ORIGINAL examination question shown in the
+supplied image.
 
-The image is authoritative.
+The ORIGINAL IMAGE is authoritative.
 
-Show complete mathematical working.
+The question image is the primary source.
+The complete examination page is secondary visual context.
+
+DO NOT guess.
+
+DO NOT silently replace an unreadable expression with a likely one.
+
+First identify the exact mathematical structure of the question.
+
+Then solve it completely.
+
+============================================================
+MANDATORY MATHEMATICAL READING
+============================================================
+
+Pay particular attention to:
+
+- fractions
+- numerator/denominator boundaries
+- brackets
+- powers
+- indices
+- roots
+- surds
+- negative signs
+- multiplication signs
+- division signs
+- algebraic coefficients
+- variables
+- integration symbols
+- limits
+- constants
+- degrees
+- angles
+- coordinates
+- diagram labels
+- units
+
+Never confuse:
+
+    sqrt(a+b)
+
+with:
+
+    sqrt(a) + b
+
+Never confuse:
+
+    (a+b)^2
+
+with:
+
+    a+b^2
+
+Never confuse:
+
+    1/(a+b)
+
+with:
+
+    1/a+b
+
+Never confuse:
+
+    ∫x^n dx
+
+with:
+
+    x^n
+
+============================================================
+SURDS
+============================================================
+
+If the question involves surds:
+
+1. Identify the exact surd expression.
+2. Simplify perfect-square factors.
+3. Combine like surds where appropriate.
+4. Rationalise denominators where required.
+5. Show every important algebraic step.
+6. Do not turn an exact surd answer into a decimal unless requested.
+7. Check the final result algebraically.
+
+Examples of proper notation:
+
+\sqrt{12}=2\sqrt{3}
+
+\frac{1}{\sqrt{3}}
+=
+\frac{\sqrt{3}}{3}
+
+\frac{1}{a+\sqrt{b}}
+
+Use the actual expression from the image,
+not an assumed textbook version.
+
+============================================================
+INTEGRATION
+============================================================
+
+If the question involves integration:
+
+1. Identify the exact integrand.
+2. Rewrite it into a suitable form if necessary.
+3. Apply the correct integration rule.
+4. Show the power-rule step explicitly where appropriate.
+5. Include the constant of integration for indefinite integration.
+6. Apply limits correctly for definite integration.
+7. Simplify the exact answer.
+8. Check the result by differentiation when useful.
+
+For example:
+
+\[
+\int x^n\,dx
+=
+\frac{x^{n+1}}{n+1}+C
+\]
+
+provided \(n\neq -1\).
+
+For a definite integral:
+
+\[
+\int_a^b f(x)\,dx
+=
+F(b)-F(a)
+\]
+
+Do not omit \(C\) from an indefinite integral.
+
+Do not invent limits.
+
+============================================================
+MAKING THE SUBJECT OF A FORMULA
+============================================================
+
+If the question asks to make a particular variable the subject:
+
+1. Identify the requested subject exactly.
+2. State the original formula.
+3. Rearrange one operation at a time.
+4. Keep both sides mathematically balanced.
+5. Deal carefully with fractions.
+6. Deal carefully with powers and roots.
+7. Show sign choices where square roots are involved.
+8. State restrictions if mathematically necessary.
+9. Substitute back or otherwise verify the rearrangement.
+
+For example, do not jump directly from:
+
+\[
+y=\frac{x+a}{b}
+\]
+
+to the answer without showing the algebraic rearrangement.
+
+============================================================
+GENERAL MATHEMATICS
+============================================================
+
+Show complete examination-quality working.
 
 Give:
 
@@ -280,63 +505,23 @@ Give:
 3. Final answer
 4. Concise marking scheme
 
-If a diagram is involved, use the ACTUAL visible labels,
-dimensions, angles, coordinates and other information.
+The working must be sufficient for a teacher to award marks.
 
-Do not invent missing information.
+Do not give only the final answer.
 
 ============================================================
-MATHEMATICAL NOTATION
+DIAGRAM QUESTIONS
 ============================================================
 
-Use proper LaTeX.
+If a diagram is involved:
 
-Examples:
-
-\frac{a}{b}
-
-\sqrt{x}
-
-x^2
-
-x^3
-
-x_n
-
-\pm
-
-\times
-
-\div
-
-30^\circ
-
-\pi
-
-\sin\theta
-
-\cos\theta
-
-\tan\theta
-
-\vec{AB}
-
-\parallel
-
-\perp
-
-\therefore
-
-\sim
-
-\cong
-
-Use \( ... \) for inline mathematics.
-
-Use \[ ... \] for displayed mathematics.
-
-Do not use plain-text substitutes when proper notation is
-appropriate.
+- use the ACTUAL visible labels;
+- use the ACTUAL visible measurements;
+- use the ACTUAL visible angles;
+- use the ACTUAL coordinates;
+- use the actual relationships shown;
+- do not invent missing dimensions;
+- do not assume a diagram is to scale unless the question says so.
 
 ============================================================
 CONFIDENCE
@@ -345,18 +530,25 @@ CONFIDENCE
 Do NOT use LOW confidence merely because:
 
 - the question is difficult;
+- the mathematics is advanced;
 - a diagram exists;
-- advanced mathematics is used;
+- surds are present;
+- integration is present;
+- algebra is complicated;
 - LaTeX is used;
+- the answer is long;
 - the model is generally uncertain;
 - JSON formatting is imperfect;
-- a technical issue occurred.
+- an API/technical problem occurred.
 
-LOW confidence is allowed ONLY when there is:
+LOW confidence is allowed ONLY when:
 
-- a genuine mathematical error;
+A. There is a genuine mathematical error.
+
 OR
-- genuine essential visual ambiguity.
+
+B. Essential visual information is genuinely unreadable
+or ambiguous.
 
 If the mathematics is correct and the necessary visual
 information is readable, confidence should normally be HIGH.
@@ -401,33 +593,102 @@ Return JSON only:
 # ============================================================
 
 VERIFICATION_PROMPT = r"""
-You are the FINAL verification examiner for Mwalimu AI.
+You are the FINAL INDEPENDENT MATHEMATICS VERIFICATION EXAMINER
+for Mwalimu AI.
 
-Compare the generated mathematics solution against the ORIGINAL
-examination page image.
+Compare the generated solution against the ORIGINAL QUESTION
+IMAGE and the COMPLETE ORIGINAL PAGE.
 
-Check:
+The original image is authoritative.
 
-1. Was the question interpreted correctly?
-2. Were the visible numbers correct?
-3. Were mathematical symbols interpreted correctly?
-4. Were diagram labels and measurements used correctly?
-5. Is the mathematical working correct?
-6. Does the final answer follow from the working?
-7. Does the marking scheme match the working?
+Do not merely agree with the generated solution.
+
+Independently check the mathematics.
 
 ============================================================
-CRITICAL CONFIDENCE RULE
+CHECK 1 — QUESTION READING
+============================================================
+
+Confirm that:
+
+- the correct question was solved;
+- all visible numbers were read correctly;
+- fractions were read correctly;
+- signs were read correctly;
+- powers and indices were read correctly;
+- roots and surds were read correctly;
+- brackets were read correctly;
+- integration symbols and limits were read correctly;
+- diagram labels were read correctly.
+
+============================================================
+CHECK 2 — SURDS
+============================================================
+
+If surds are present:
+
+- verify simplification;
+- verify multiplication/division;
+- verify collection of like surds;
+- verify rationalisation;
+- verify the final exact answer.
+
+============================================================
+CHECK 3 — INTEGRATION
+============================================================
+
+If integration is present:
+
+- verify the integrand;
+- verify the integration rule;
+- verify powers;
+- verify coefficients;
+- verify the constant of integration where required;
+- verify limits for definite integrals;
+- differentiate the result mentally/algebraically where useful.
+
+============================================================
+CHECK 4 — MAKING SUBJECT OF FORMULA
+============================================================
+
+If algebraic rearrangement is present:
+
+- verify every rearrangement;
+- verify signs;
+- verify denominators;
+- verify powers;
+- verify roots;
+- verify that the requested variable is actually the subject.
+
+============================================================
+CHECK 5 — DIAGRAM
+============================================================
+
+If a diagram is involved:
+
+- verify visible labels;
+- verify dimensions;
+- verify angles;
+- verify coordinates;
+- verify geometric relationships;
+- do not invent missing information.
+
+============================================================
+CONFIDENCE RULE
 ============================================================
 
 LOW confidence MUST NOT be used merely because:
 
 - the question is difficult;
 - a diagram exists;
-- advanced mathematics is involved;
+- surds are present;
+- integration is present;
+- algebra is complicated;
 - LaTeX is present;
-- the model has general uncertainty;
-- formatting is imperfect.
+- the solution is lengthy;
+- the verifier has general uncertainty;
+- formatting is imperfect;
+- a technical service failed.
 
 LOW is ONLY permitted when:
 
@@ -438,8 +699,8 @@ OR
 B. Essential visual information is genuinely unreadable
 or ambiguous.
 
-If the solution is mathematically correct and the visual
-information is sufficiently clear, return HIGH.
+If the mathematics is correct and the visual information is
+sufficiently clear, return HIGH.
 
 Return JSON only:
 
@@ -481,7 +742,12 @@ def parse_json_response(
     )
 
     try:
-        return json.loads(text)
+
+        parsed = json.loads(text)
+
+        if isinstance(parsed, dict):
+            return parsed
+
     except Exception:
         pass
 
@@ -491,9 +757,14 @@ def parse_json_response(
     if start >= 0 and end > start:
 
         try:
-            return json.loads(
+
+            parsed = json.loads(
                 text[start:end + 1]
             )
+
+            if isinstance(parsed, dict):
+                return parsed
+
         except Exception:
             pass
 
@@ -508,7 +779,7 @@ def normalise_bbox(
     bbox: Any,
     image_width: int,
     image_height: int
-):
+) -> Optional[Dict[str, int]]:
 
     if not isinstance(
         bbox,
@@ -597,7 +868,7 @@ def normalise_bbox(
 def crop_original_question(
     image_bytes: bytes,
     bbox: Dict[str, int]
-):
+) -> Optional[bytes]:
 
     try:
 
@@ -623,14 +894,22 @@ def crop_original_question(
         width = safe_bbox["width"]
         height = safe_bbox["height"]
 
+        # Generous margin is deliberate.
+        # It protects against cutting off:
+        #   - a denominator
+        #   - a superscript
+        #   - a radical
+        #   - an equation continuation
+        #   - diagram labels
+        #   - angle measurements
         margin_x = max(
-            12,
-            int(width * 0.015)
+            18,
+            int(width * QUESTION_CROP_MARGIN)
         )
 
         margin_y = max(
-            12,
-            int(height * 0.015)
+            18,
+            int(height * QUESTION_CROP_MARGIN)
         )
 
         crop = image.crop(
@@ -677,7 +956,7 @@ def analyse_page(
     image_bytes: bytes,
     page_number: int,
     extracted_text: str
-):
+) -> Dict[str, Any]:
 
     response = client.responses.create(
 
@@ -727,11 +1006,12 @@ def analyse_page(
 # ============================================================
 
 def solve_question(
-    image_bytes: bytes,
+    page_image_bytes: bytes,
+    question_image_bytes: Optional[bytes],
     page_number: int,
     question: Dict[str, Any],
     extracted_text: str
-):
+) -> Dict[str, Any]:
 
     question_number = str(
         question.get(
@@ -740,32 +1020,99 @@ def solve_question(
         )
     ).strip()
 
-    prompt = SOLUTION_PROMPT + """
-
-PAGE NUMBER:
-""" + str(page_number) + """
-
-QUESTION NUMBER:
-""" + question_number + """
-
-VISIBLE QUESTION SUMMARY:
-""" + str(
-        question.get(
-            "visible_text_summary",
-            ""
+    prompt = (
+        SOLUTION_PROMPT
+        + "\n\nPAGE NUMBER:\n"
+        + str(page_number)
+        + "\n\nQUESTION NUMBER:\n"
+        + question_number
+        + "\n\nVISIBLE QUESTION SUMMARY:\n"
+        + str(
+            question.get(
+                "visible_text_summary",
+                ""
+            )
         )
-    ) + """
-
-DIAGRAM DESCRIPTION:
-""" + str(
-        question.get(
-            "diagram_description",
-            ""
+        + "\n\nDIAGRAM DESCRIPTION:\n"
+        + str(
+            question.get(
+                "diagram_description",
+                ""
+            )
         )
-    ) + """
+        + "\n\nIMPORTANT VISUAL FEATURES:\n"
+        + json.dumps(
+            question.get(
+                "important_visual_features",
+                []
+            ),
+            ensure_ascii=False
+        )
+        + "\n\nSUPPORTING EXTRACTED TEXT:\n"
+        + extracted_text[:16000]
+    )
 
-SUPPORTING EXTRACTED TEXT:
-""" + extracted_text[:16000]
+    content = [
+
+        {
+            "type": "input_text",
+            "text": prompt
+        }
+    ]
+
+    # The isolated question is the PRIMARY image.
+    if question_image_bytes:
+
+        content.append(
+            {
+                "type": "input_text",
+                "text": (
+                    "PRIMARY QUESTION IMAGE: "
+                    "Read the exact mathematical expression "
+                    "from this isolated original question."
+                )
+            }
+        )
+
+        content.append(
+            {
+                "type": "input_image",
+
+                "image_url":
+                    image_to_data_url(
+                        question_image_bytes
+                    ),
+
+                "detail":
+                    "high"
+            }
+        )
+
+    # Full page remains available as visual context.
+    content.append(
+        {
+            "type": "input_text",
+            "text": (
+                "COMPLETE ORIGINAL PAGE: "
+                "Use this to verify context, question continuation "
+                "and surrounding diagram information."
+            )
+        }
+    )
+
+    content.append(
+        {
+            "type": "input_image",
+
+            "image_url":
+                image_to_data_url(
+                    page_image_bytes
+                ),
+
+            "detail":
+                "high"
+        }
+    )
 
     try:
 
@@ -774,29 +1121,9 @@ SUPPORTING EXTRACTED TEXT:
             model=MODEL,
 
             input=[
-
                 {
                     "role": "user",
-
-                    "content": [
-
-                        {
-                            "type": "input_text",
-                            "text": prompt
-                        },
-
-                        {
-                            "type": "input_image",
-
-                            "image_url":
-                                image_to_data_url(
-                                    image_bytes
-                                ),
-
-                            "detail":
-                                "high"
-                        }
-                    ]
+                    "content": content
                 }
             ]
         )
@@ -825,20 +1152,18 @@ SUPPORTING EXTRACTED TEXT:
                     [],
 
                 "visual_dependency":
-                    "unknown",
+                    "medium",
 
                 "visual_check":
                     "",
 
-                # IMPORTANT:
-                # Technical parser problem is MEDIUM,
-                # never LOW.
                 "confidence":
                     "medium",
 
                 "confidence_reason":
-                    "Response formatting could not be parsed; "
-                    "this is a technical issue, not evidence of "
+                    "The mathematical response was generated, "
+                    "but its JSON structure could not be parsed. "
+                    "This is a technical issue, not evidence of "
                     "a mathematical error.",
 
                 "warning":
@@ -871,18 +1196,17 @@ SUPPORTING EXTRACTED TEXT:
                 [],
 
             "visual_dependency":
-                "unknown",
+                "medium",
 
             "visual_check":
                 "",
 
-            # IMPORTANT:
-            # API failure never becomes LOW.
             "confidence":
                 "medium",
 
             "confidence_reason":
-                "Solution service was unavailable.",
+                "The solution service was unavailable. "
+                "This is not evidence of a mathematical error.",
 
             "warning":
                 str(exc)
@@ -894,11 +1218,12 @@ SUPPORTING EXTRACTED TEXT:
 # ============================================================
 
 def verify_solution(
-    image_bytes: bytes,
+    page_image_bytes: bytes,
+    question_image_bytes: Optional[bytes],
     page_number: int,
     question: Dict[str, Any],
     solution: Dict[str, Any]
-):
+) -> Dict[str, Any]:
 
     prompt = (
 
@@ -907,7 +1232,7 @@ def verify_solution(
         + "\n\nPAGE NUMBER:\n"
         + str(page_number)
 
-        + "\n\nQUESTION:\n"
+        + "\n\nQUESTION METADATA:\n"
         + json.dumps(
             question,
             ensure_ascii=False,
@@ -922,6 +1247,66 @@ def verify_solution(
         )
     )
 
+    content = [
+
+        {
+            "type": "input_text",
+            "text": prompt
+        }
+    ]
+
+    # Primary verification image.
+    if question_image_bytes:
+
+        content.append(
+            {
+                "type": "input_text",
+                "text": (
+                    "PRIMARY ORIGINAL QUESTION: "
+                    "Independently read this exact question "
+                    "before judging the generated solution."
+                )
+            }
+        )
+
+        content.append(
+            {
+                "type": "input_image",
+
+                "image_url":
+                    image_to_data_url(
+                        question_image_bytes
+                    ),
+
+                "detail":
+                    "high"
+            }
+        )
+
+    content.append(
+        {
+            "type": "input_text",
+            "text": (
+                "COMPLETE ORIGINAL PAGE: "
+                "Use this for context and visual verification."
+            )
+        }
+    )
+
+    content.append(
+        {
+            "type": "input_image",
+
+            "image_url":
+                image_to_data_url(
+                    page_image_bytes
+                ),
+
+            "detail":
+                "high"
+        }
+    )
+
     try:
 
         response = client.responses.create(
@@ -929,29 +1314,9 @@ def verify_solution(
             model=MODEL,
 
             input=[
-
                 {
                     "role": "user",
-
-                    "content": [
-
-                        {
-                            "type": "input_text",
-                            "text": prompt
-                        },
-
-                        {
-                            "type": "input_image",
-
-                            "image_url":
-                                image_to_data_url(
-                                    image_bytes
-                                ),
-
-                            "detail":
-                                "high"
-                        }
-                    ]
+                    "content": content
                 }
             ]
         )
@@ -961,7 +1326,6 @@ def verify_solution(
         )
 
         if result:
-
             return result
 
         return {
@@ -973,7 +1337,8 @@ def verify_solution(
                 "medium",
 
             "reason":
-                "Verification response formatting issue.",
+                "Verification response formatting issue. "
+                "No mathematical error was established.",
 
             "mathematical_error":
                 False,
@@ -996,7 +1361,8 @@ def verify_solution(
                 "medium",
 
             "reason":
-                "Verification service unavailable.",
+                "Verification service unavailable. "
+                "No mathematical error was established.",
 
             "mathematical_error":
                 False,
@@ -1019,7 +1385,7 @@ def verify_solution(
 def apply_verification(
     solution: Dict[str, Any],
     verification: Dict[str, Any]
-):
+) -> Dict[str, Any]:
 
     mathematical_error = (
         verification.get(
@@ -1037,6 +1403,14 @@ def apply_verification(
         is True
     )
 
+    verified = (
+        verification.get(
+            "verified",
+            False
+        )
+        is True
+    )
+
     verifier_confidence = str(
         verification.get(
             "confidence",
@@ -1044,12 +1418,15 @@ def apply_verification(
         )
     ).lower().strip()
 
-    # --------------------------------------------------------
-    # THE IMPORTANT PART
-    # --------------------------------------------------------
+    # ========================================================
+    # STRICT CONFIDENCE GATE
+    # ========================================================
     #
-    # LOW is impossible unless there is actual evidence.
-    # --------------------------------------------------------
+    # LOW requires actual evidence.
+    #
+    # Technical problems cannot create LOW.
+    #
+    # ========================================================
 
     if (
         mathematical_error
@@ -1058,13 +1435,15 @@ def apply_verification(
 
         final_confidence = "low"
 
-    elif verifier_confidence == "high":
+    elif (
+        verified
+        and verifier_confidence == "high"
+    ):
 
         final_confidence = "high"
 
     else:
 
-        # Technical or unresolved situations are MEDIUM.
         final_confidence = "medium"
 
     reason = str(
@@ -1079,22 +1458,23 @@ def apply_verification(
         if final_confidence == "high":
 
             reason = (
-                "Verification found no genuine mathematical "
-                "error or essential visual ambiguity."
+                "Independent verification found no genuine "
+                "mathematical error or essential visual ambiguity."
             )
 
         elif final_confidence == "low":
 
             reason = (
-                "Verification identified a genuine issue "
-                "requiring review."
+                "Independent verification identified a genuine "
+                "mathematical or essential visual issue."
             )
 
         else:
 
             reason = (
-                "Verification did not establish sufficient "
-                "evidence for a high-confidence result."
+                "The result was not given high confidence by "
+                "independent verification. No genuine mathematical "
+                "error was established."
             )
 
     solution[
@@ -1110,12 +1490,7 @@ def apply_verification(
     ] = {
 
         "verified":
-            bool(
-                verification.get(
-                    "verified",
-                    False
-                )
-            ),
+            verified,
 
         "confidence":
             final_confidence,
@@ -1188,12 +1563,19 @@ def render_math_text(
 
 def completeness_check(
     results: List[Dict[str, Any]]
-):
+) -> Dict[str, Any]:
 
     expected = []
     solved = []
 
     for page_result in results:
+
+        page_number = str(
+            page_result.get(
+                "page_number",
+                ""
+            )
+        )
 
         for question in page_result.get(
             "questions",
@@ -1208,8 +1590,9 @@ def completeness_check(
             ).strip()
 
             if number:
+
                 expected.append(
-                    number
+                    f"{page_number}:{number}"
                 )
 
         for solution in page_result.get(
@@ -1225,8 +1608,9 @@ def completeness_check(
             ).strip()
 
             if number:
+
                 solved.append(
-                    number
+                    f"{page_number}:{number}"
                 )
 
     expected_set = set(
@@ -1237,21 +1621,30 @@ def completeness_check(
         solved
     )
 
-    missing = sorted(
-        expected_set - solved_set,
+    missing_keys = expected_set - solved_set
 
-        key=lambda x: (
-            int(
-                re.sub(
-                    r"\D",
-                    "",
-                    x
-                )
-                or 999
-            ),
-            x
-        )
-    )
+    missing_questions = []
+
+    for key in sorted(
+        missing_keys
+    ):
+
+        try:
+
+            page, number = key.split(
+                ":",
+                1
+            )
+
+            missing_questions.append(
+                f"Page {page}, Q{number}"
+            )
+
+        except Exception:
+
+            missing_questions.append(
+                key
+            )
 
     return {
 
@@ -1259,13 +1652,16 @@ def completeness_check(
             len(expected_set),
 
         "questions_solved":
-            len(solved_set),
+            len(
+                expected_set
+                & solved_set
+            ),
 
         "missing_questions":
-            missing,
+            missing_questions,
 
         "complete":
-            len(missing) == 0
+            len(missing_questions) == 0
     }
 
 
@@ -1343,19 +1739,19 @@ def display_question(
     if confidence == "high":
 
         st.success(
-            "Confidence: high"
+            "Confidence: HIGH"
         )
 
     elif confidence == "medium":
 
         st.warning(
-            "Confidence: medium"
+            "Confidence: MEDIUM"
         )
 
     else:
 
         st.error(
-            "Confidence: low"
+            "Confidence: LOW"
         )
 
     reason = solution.get(
@@ -1386,7 +1782,7 @@ def display_question(
         ):
 
             st.caption(
-                "✓ Solution verification completed."
+                "✓ Independent solution verification completed."
             )
 
         if verification.get(
@@ -1396,7 +1792,7 @@ def display_question(
 
             st.error(
                 "Mathematical verification found a "
-                "possible error requiring review."
+                "possible genuine error requiring review."
             )
 
         if verification.get(
@@ -1502,6 +1898,12 @@ def display_question(
 
         for item in marking:
 
+            if not isinstance(
+                item,
+                dict
+            ):
+                continue
+
             marks = item.get(
                 "marks",
                 ""
@@ -1569,9 +1971,9 @@ if uploaded:
             uploaded.name
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # RENDER
-        # ----------------------------------------------------
+        # ====================================================
 
         with st.spinner(
             "Rendering the original PDF pages..."
@@ -1599,6 +2001,14 @@ if uploaded:
 
                 st.stop()
 
+        if not page_images:
+
+            st.error(
+                "No pages were found in the PDF."
+            )
+
+            st.stop()
+
         st.session_state.page_images = (
             page_images
         )
@@ -1614,9 +2024,9 @@ if uploaded:
 
         all_results = []
 
-        # ----------------------------------------------------
+        # ====================================================
         # EACH PAGE
-        # ----------------------------------------------------
+        # ====================================================
 
         for index, image_bytes in enumerate(
             page_images
@@ -1646,8 +2056,15 @@ if uploaded:
                             [],
 
                         "visual_warnings":
-                            [str(exc)]
+                            [
+                                str(exc)
+                            ]
                     }
+
+            questions = page_analysis.get(
+                "questions",
+                []
+            )
 
             page_result = {
 
@@ -1655,10 +2072,7 @@ if uploaded:
                     page_number,
 
                 "questions":
-                    page_analysis.get(
-                        "questions",
-                        []
-                    ),
+                    questions,
 
                 "visual_warnings":
                     page_analysis.get(
@@ -1670,13 +2084,11 @@ if uploaded:
                     []
             }
 
-            # ------------------------------------------------
+            # =================================================
             # QUESTIONS
-            # ------------------------------------------------
+            # =================================================
 
-            for question in page_result[
-                "questions"
-            ]:
+            for question in questions:
 
                 number = str(
                     question.get(
@@ -1688,6 +2100,29 @@ if uploaded:
                 if not number:
                     continue
 
+                # ---------------------------------------------
+                # CREATE ORIGINAL QUESTION CROP
+                # ---------------------------------------------
+
+                question_crop = None
+
+                bbox = question.get(
+                    "bbox"
+                )
+
+                if bbox:
+
+                    question_crop = (
+                        crop_original_question(
+                            image_bytes,
+                            bbox
+                        )
+                    )
+
+                # ---------------------------------------------
+                # SOLVE
+                # ---------------------------------------------
+
                 with st.status(
                     f"Solving Question "
                     f"{number}...",
@@ -1695,15 +2130,16 @@ if uploaded:
                 ):
 
                     solution = solve_question(
-                        image_bytes,
-                        page_number,
-                        question,
-                        page_texts[index]
+                        page_image_bytes=image_bytes,
+                        question_image_bytes=question_crop,
+                        page_number=page_number,
+                        question=question,
+                        extracted_text=page_texts[index]
                     )
 
-                # --------------------------------------------
-                # VERIFICATION
-                # --------------------------------------------
+                # ---------------------------------------------
+                # VERIFY
+                # ---------------------------------------------
 
                 with st.status(
                     f"Verifying Question "
@@ -1712,10 +2148,11 @@ if uploaded:
                 ):
 
                     verification = verify_solution(
-                        image_bytes,
-                        page_number,
-                        question,
-                        solution
+                        page_image_bytes=image_bytes,
+                        question_image_bytes=question_crop,
+                        page_number=page_number,
+                        question=question,
+                        solution=solution
                     )
 
                     solution = apply_verification(
@@ -1749,7 +2186,7 @@ if uploaded:
 
         st.success(
             "✅ Clean marking-scheme generation "
-            "and verification completed."
+            "and independent verification completed."
         )
 
 
@@ -1774,12 +2211,12 @@ if results:
     st.info(
         "The original examination pages remain "
         "the visual source of truth. Mwalimu AI "
-        "generates the working underneath them."
+        "generates the mathematical working underneath them."
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # COMPLETENESS
-    # --------------------------------------------------------
+    # ========================================================
 
     check = completeness_check(
         results
@@ -1837,9 +2274,9 @@ if results:
             "✅ Completeness check passed."
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # PAGE OUTPUT
-    # --------------------------------------------------------
+    # ========================================================
 
     for page_result in results:
 
@@ -1962,9 +2399,9 @@ if results:
                 solution
             )
 
-    # --------------------------------------------------------
+    # ========================================================
     # FINAL REPORT
-    # --------------------------------------------------------
+    # ========================================================
 
     st.divider()
 
@@ -2021,9 +2458,130 @@ if results:
             "questions were detected."
         )
 
-    # --------------------------------------------------------
+    # ========================================================
+    # MATHS DIAGNOSTIC
+    # ========================================================
+
+    maths_features = {
+        "surds": 0,
+        "integration": 0,
+        "formula_subject": 0
+    }
+
+    for page_result in results:
+
+        for question in page_result.get(
+            "questions",
+            []
+        ):
+
+            summary = (
+                str(
+                    question.get(
+                        "visible_text_summary",
+                        ""
+                    )
+                )
+                .lower()
+            )
+
+            features = " ".join(
+                str(x).lower()
+                for x in question.get(
+                    "important_visual_features",
+                    []
+                )
+            )
+
+            combined = (
+                summary
+                + " "
+                + features
+            )
+
+            if any(
+                word in combined
+                for word in [
+                    "surd",
+                    "root",
+                    "radical",
+                    "√"
+                ]
+            ):
+
+                maths_features[
+                    "surds"
+                ] += 1
+
+            if any(
+                word in combined
+                for word in [
+                    "integrat",
+                    "∫",
+                    "integral"
+                ]
+            ):
+
+                maths_features[
+                    "integration"
+                ] += 1
+
+            if any(
+                phrase in combined
+                for phrase in [
+                    "make",
+                    "subject",
+                    "formula"
+                ]
+            ):
+
+                maths_features[
+                    "formula_subject"
+                ] += 1
+
+    if any(
+        value > 0
+        for value in maths_features.values()
+    ):
+
+        st.markdown(
+            "### 🧮 Mathematics focus detected"
+        )
+
+        m1, m2, m3 = st.columns(
+            3
+        )
+
+        with m1:
+
+            st.metric(
+                "Surd questions",
+                maths_features[
+                    "surds"
+                ]
+            )
+
+        with m2:
+
+            st.metric(
+                "Integration questions",
+                maths_features[
+                    "integration"
+                ]
+            )
+
+        with m3:
+
+            st.metric(
+                "Formula questions",
+                maths_features[
+                    "formula_subject"
+                ]
+            )
+
+    # ========================================================
     # JSON DOWNLOAD
-    # --------------------------------------------------------
+    # ========================================================
 
     json_output = json.dumps(
         results,
@@ -2054,15 +2612,21 @@ else:
 
         **3. Questions are identified**
 
-        **4. Complete mathematical working is generated**
+        **4. Each question is visually isolated**
 
-        **5. The solution is verified against the original page**
+        **5. Complete mathematical working is generated**
 
-        **6. Low confidence is reserved for genuine
+        **6. Surds, integration and algebraic rearrangement
+        receive dedicated mathematical instructions**
+
+        **7. The solution is independently verified
+        against the original question**
+
+        **8. Low confidence is reserved for genuine
         mathematical errors or essential visual ambiguity**
 
-        **7. Original pages remain untouched**
+        **9. Original pages remain untouched**
 
-        **8. Marking points are displayed under each question**
+        **10. Marking points are displayed under each question**
         """
     )
