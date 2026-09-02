@@ -9,7 +9,9 @@ import streamlit as st
 import fitz
 from PIL import Image
 from openai import OpenAI
-
+import numpy as np
+import matplotlib.pyplot as plt
+import sympy as sp
 
 # ============================================================
 # MWALIMU AI — MVP3.2 VISUAL MARKING
