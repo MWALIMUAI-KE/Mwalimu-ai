@@ -691,7 +691,82 @@ LOW confidence MUST NOT be used merely because:
 - the verifier has general uncertainty;
 - formatting is imperfect;
 - a technical service failed.
+GRAPHING ENGINE REQUIREMENTS:
 
+If the question asks the candidate to draw, plot, sketch,
+complete, or construct a mathematical graph, identify the
+graph requirements precisely.
+
+Read and preserve:
+
+- the equation or function
+- graph type
+- x-values and y-values
+- coordinates
+- intercepts
+- domain
+- range
+- axis labels
+- specified scale
+- specified x and y limits
+- whether points must be shown
+- whether points must be joined
+- whether shading is required
+- angle units where relevant
+
+Do NOT claim that a graph has been drawn by the AI.
+
+Instead, return a graph_spec that allows the application to
+generate the graph mathematically.
+
+For PP2 V1, use only these graph types:
+
+- line
+- quadratic
+- function
+- points
+
+Use canonical mathematical expressions such as:
+
+2*x+3
+x**2-4*x+3
+sin(x)
+cos(x)
+
+Do not place arbitrary Python code inside graph_spec.
+
+If the question does NOT require a graph:
+
+"required": false
+
+If it DOES require a graph:
+
+"required": true
+
+Return this graph_spec structure:
+
+{
+  "required": false,
+  "graph_type": "none | line | quadratic | function | points",
+  "expression": "",
+  "x_values": [],
+  "y_values": [],
+  "x_min": -10,
+  "x_max": 10,
+  "y_min": null,
+  "y_max": null,
+  "x_label": "x",
+  "y_label": "y",
+  "show_points": false,
+  "connect_points": false,
+  "shade": false,
+  "shade_direction": "",
+  "angle_unit": "radians",
+  "title": ""
+}
+
+Never invent a domain, range, scale, coordinate or graph
+requirement that is not supported by the question.
 LOW is ONLY permitted when:
 
 A. There is a genuine mathematical error.
