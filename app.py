@@ -579,7 +579,7 @@ Return JSON only:
 
   "visual_dependency": "none | low | medium | high",
 
-  "visual_check": "...",
+  "visual_check": "...",graph_spec
 
   "confidence": "high | medium | low",
 
