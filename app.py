@@ -2308,7 +2308,50 @@ def display_question(
         render_math_text(
             final_answer
         )
+    # ========================================================
+    # 📈 GENERATED GRAPH
+    # ========================================================
 
+    graph_spec = solution.get(
+        "graph_spec",
+        {}
+    )
+
+    if (
+        isinstance(graph_spec, dict)
+        and graph_spec.get("required", False)
+    ):
+
+        st.markdown("### 📈 Generated Graph")
+
+        graph_png = render_graph(
+            graph_spec
+        )
+
+        if graph_png:
+
+            st.image(
+                graph_png,
+                caption=(
+                    f"Mathematical graph for "
+                    f"Question {number}"
+                ),
+                width="stretch"
+            )
+
+            st.caption(
+                "📐 Graph generated mathematically "
+                "from the question's verified "
+                "graph specification."
+            )
+
+        else:
+
+            st.warning(
+                "The question requires a graph, "
+                "but the graph specification could "
+                "not be rendered."
+            )
     marking = solution.get(
         "marking_scheme",
         []
