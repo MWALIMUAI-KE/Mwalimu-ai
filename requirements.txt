@@ -2,3 +2,6 @@ streamlit
 openai
 pypdf
 PyMuPDF
+numpy
+matplotlib
+sympy
