@@ -23,6 +23,7 @@ import sympy as sp
 #   1. SURDS
 #   2. INTEGRATION
 #   3. MAKING THE SUBJECT OF A FORMULA
+#   4. RELIABLE MATHEMATICAL RENDERING
 #
 # ORIGINAL PDF = VISUAL SOURCE OF TRUTH
 #
@@ -68,7 +69,6 @@ MODEL = os.getenv(
 
 MAX_PAGE_DIMENSION = 1800
 JPEG_QUALITY = 88
-
 QUESTION_CROP_MARGIN = 0.06
 
 
@@ -126,7 +126,6 @@ def render_pdf_pages(
     )
 
     try:
-
         for page in document:
 
             rect = page.rect
@@ -157,7 +156,6 @@ def render_pdf_pages(
             )
 
     finally:
-
         document.close()
 
     return pages
@@ -179,7 +177,6 @@ def extract_page_texts(
     )
 
     try:
-
         for page in document:
 
             try:
@@ -192,7 +189,6 @@ def extract_page_texts(
             )
 
     finally:
-
         document.close()
 
     return texts
@@ -233,8 +229,7 @@ Do not solve the questions.
 
 For every question provide an approximate bounding box in pixels.
 
-The bounding box must include the COMPLETE visible question,
-including:
+The bounding box must include the COMPLETE visible question, including:
 
 - question number
 - question text
@@ -330,8 +325,8 @@ Return JSON only:
 SOLUTION_PROMPT = r"""
 You are the SENIOR MATHEMATICS EXAMINER for Mwalimu AI.
 
-You must solve the ORIGINAL examination question shown in the
-supplied image.
+You must solve the ORIGINAL examination question shown in
+the supplied image.
 
 The ORIGINAL IMAGE is authoritative.
 
@@ -419,13 +414,13 @@ If the question involves surds:
 6. Do not turn an exact surd answer into a decimal unless requested.
 7. Check the final result algebraically.
 
-Examples of proper notation:
+Use proper mathematical notation.
+
+Examples:
 
 \sqrt{12}=2\sqrt{3}
 
-\frac{1}{\sqrt{3}}
-=
-\frac{\sqrt{3}}{3}
+\frac{1}{\sqrt{3}}=\frac{\sqrt{3}}{3}
 
 \frac{1}{a+\sqrt{b}}
 
@@ -450,8 +445,7 @@ If the question involves integration:
 For example:
 
 \[
-\int x^n\,dx
-=
+\int x^n\,dx =
 \frac{x^{n+1}}{n+1}+C
 \]
 
@@ -460,12 +454,10 @@ provided \(n\neq -1\).
 For a definite integral:
 
 \[
-\int_a^b f(x)\,dx
-=
-F(b)-F(a)
+\int_a^b f(x)\,dx=F(b)-F(a)
 \]
 
-Do not omit \(C\) from an indefinite integral.
+Do not omit C from an indefinite integral.
 
 Do not invent limits.
 
@@ -528,8 +520,7 @@ If a diagram is involved:
 GRAPHING
 ============================================================
 
-If the question requires a graph, independently identify and
-preserve:
+If the question requires a graph, independently identify and preserve:
 
 - the equation or function;
 - graph type;
@@ -545,8 +536,8 @@ preserve:
 
 Do NOT claim that a graph has already been drawn by the AI.
 
-Instead, return a graph_spec that allows the application to
-generate the graph mathematically.
+Instead, return a graph_spec that allows the application
+to generate the graph mathematically.
 
 For PP2 V1, use only these graph types:
 
@@ -784,56 +775,24 @@ If the question requires a graph, independently verify:
 - joining requirements;
 - general mathematical shape.
 
-A technical failure to render a graph is NOT itself a
-mathematical error.
+A technical failure to render a graph is NOT itself
+a mathematical error.
 
-A wrong equation, wrong coordinates, wrong domain, wrong
-graph type, or mathematically incorrect graph specification
-IS a genuine mathematical error.
-
-If the question asks the candidate to draw, plot, sketch,
-complete, or construct a mathematical graph, identify the
-graph requirements precisely.
-
-Read and preserve:
-
-- the equation or function;
-- graph type;
-- x-values and y-values;
-- coordinates;
-- intercepts;
-- domain;
-- range;
-- axis labels;
-- specified scale;
-- specified x and y limits;
-- whether points must be shown;
-- whether points must be joined;
-- whether shading is required;
-- angle units where relevant.
+A wrong equation, wrong coordinates, wrong domain,
+wrong graph type, or mathematically incorrect graph
+specification IS a genuine mathematical error.
 
 Do NOT claim that a graph has been drawn by the AI.
 
 Instead, verify the graph_spec that allows the application
 to generate the graph mathematically.
 
-For PP2 V1, use only these graph types:
+For PP2 V1, use only:
 
 - line
 - quadratic
 - function
 - points
-
-If the question does NOT require a graph:
-
-"required": false
-
-If it DOES require a graph:
-
-"required": true
-
-Never invent a domain, range, scale, coordinate or graph
-requirement that is not supported by the question.
 
 ============================================================
 CONFIDENCE RULE
@@ -861,8 +820,8 @@ OR
 B. Essential visual information is genuinely unreadable
 or ambiguous.
 
-If the mathematics is correct and the visual information is
-sufficiently clear, return HIGH.
+If the mathematics is correct and the visual information
+is sufficiently clear, return HIGH.
 
 Return JSON only:
 
@@ -904,10 +863,7 @@ def parse_json_response(
     )
 
     try:
-
-        parsed = json.loads(
-            text
-        )
+        parsed = json.loads(text)
 
         if isinstance(
             parsed,
@@ -929,7 +885,6 @@ def parse_json_response(
     if start >= 0 and end > start:
 
         try:
-
             parsed = json.loads(
                 text[start:end + 1]
             )
@@ -993,7 +948,6 @@ def normalise_bbox(
         )
 
     except Exception:
-
         return None
 
     if width <= 5 or height <= 5:
@@ -1074,16 +1028,16 @@ def crop_original_question(
         margin_x = max(
             18,
             int(
-                width
-                * QUESTION_CROP_MARGIN
+                width *
+                QUESTION_CROP_MARGIN
             )
         )
 
         margin_y = max(
             18,
             int(
-                height
-                * QUESTION_CROP_MARGIN
+                height *
+                QUESTION_CROP_MARGIN
             )
         )
 
@@ -1119,7 +1073,6 @@ def crop_original_question(
         return output.getvalue()
 
     except Exception:
-
         return None
 
 
@@ -1168,8 +1121,10 @@ def analyse_page(
                         "detail":
                             "high"
                     }
+
                 ]
             }
+
         ]
     )
 
@@ -1237,6 +1192,7 @@ def solve_question(
             "type": "input_text",
             "text": prompt
         }
+
     ]
 
     if question_image_bytes:
@@ -1447,21 +1403,17 @@ def verify_solution(
 ) -> Dict[str, Any]:
 
     prompt = (
-
         VERIFICATION_PROMPT
-
         + "\n\nPAGE NUMBER:\n"
         + str(
             page_number
         )
-
         + "\n\nQUESTION METADATA:\n"
         + json.dumps(
             question,
             ensure_ascii=False,
             indent=2
         )
-
         + "\n\nGENERATED SOLUTION:\n"
         + json.dumps(
             solution,
@@ -1476,6 +1428,7 @@ def verify_solution(
             "type": "input_text",
             "text": prompt
         }
+
     ]
 
     if question_image_bytes:
@@ -1729,41 +1682,316 @@ def apply_verification(
 
 
 # ============================================================
-# LATEX RENDERING
+# LATEX / MATHEMATICAL RENDERING
 # ============================================================
 
-def render_math_text(
-    text: Any
-):
+def _clean_math_text(
+    text: str
+) -> str:
+    """
+    Clean common model-generated mathematical wrappers while
+    preserving valid LaTeX.
 
-    if text is None:
-        return
+    The goal is to make the renderer tolerant of:
+      \\[ ... \\]
+      \\( ... \\)
+      $$ ... $$
+      $ ... $
+    and common escaped/newline formatting.
+    """
 
     text = str(
         text
     ).strip()
 
     if not text:
+        return ""
+
+    # Normalise line endings.
+    text = text.replace(
+        "\r\n",
+        "\n"
+    ).replace(
+        "\r",
+        "\n"
+    )
+
+    # Remove accidental code fences.
+    text = re.sub(
+        r"^\s*```(?:latex|tex|math)?\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    text = re.sub(
+        r"\s*```\s*$",
+        "",
+        text
+    )
+
+    # Convert display delimiters to Streamlit-friendly delimiters.
+    text = text.replace(
+        r"\[",
+        "$$"
+    )
+
+    text = text.replace(
+        r"\]",
+        "$$"
+    )
+
+    text = text.replace(
+        r"\(",
+        "$"
+    )
+
+    text = text.replace(
+        r"\)",
+        "$"
+    )
+
+    # Some model responses contain HTML line breaks.
+    text = re.sub(
+        r"<br\s*/?>",
+        "\n",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # Remove unnecessary whitespace immediately inside math delimiters.
+    text = re.sub(
+        r"\$\$\s+",
+        "$$",
+        text
+    )
+
+    text = re.sub(
+        r"\s+\$\$",
+        "$$",
+        text
+    )
+
+    text = re.sub(
+        r"\$\s+",
+        "$",
+        text
+    )
+
+    text = re.sub(
+        r"\s+\$",
+        "$",
+        text
+    )
+
+    return text.strip()
+
+
+def render_math_text(
+    text: Any
+):
+    """
+    Render AI-generated mathematical text safely.
+
+    Strategy:
+      1. Preserve genuine LaTeX.
+      2. Preserve normal prose.
+      3. Detect common plain-text mathematical notation.
+      4. Convert only safe/simple cases.
+      5. Send the result through Streamlit Markdown.
+    """
+
+    if text is None:
         return
 
-    text = text.replace(
-        "\\[",
-        "$$"
+    text = _clean_math_text(
+        text
     )
 
-    text = text.replace(
-        "\\]",
-        "$$"
+    if not text:
+        return
+
+    # --------------------------------------------------------
+    # Common plain-text replacements.
+    # These are intentionally conservative.
+    # --------------------------------------------------------
+
+    replacements = [
+
+        # Square root notation.
+        (
+            r"√(",
+            r"\sqrt{"
+        ),
+
+        # Unicode minus → standard minus.
+        (
+            "−",
+            "-"
+        ),
+
+        # Unicode multiplication sign.
+        (
+            "×",
+            r"\times "
+        ),
+
+        # Unicode division sign.
+        (
+            "÷",
+            r"\div "
+        ),
+
+        # Common degree symbol.
+        (
+            "°",
+            r"^\circ"
+        ),
+    ]
+
+    for old, new in replacements:
+        text = text.replace(
+            old,
+            new
+        )
+
+    # --------------------------------------------------------
+    # Convert simple √number / √variable forms.
+    # Do NOT aggressively rewrite arbitrary text.
+    # --------------------------------------------------------
+
+    text = re.sub(
+        r"√\s*([A-Za-z0-9]+)",
+        r"$\\sqrt{\1}$",
+        text
     )
 
-    text = text.replace(
-        "\\(",
-        "$"
+    # --------------------------------------------------------
+    # Convert common ^ exponent patterns only when they are
+    # outside existing LaTeX braces.
+    #
+    # Examples:
+    #   x^2  -> x^{2}
+    #   x^10 -> x^{10}
+    #   a^-2 -> a^{-2}
+    #
+    # Existing LaTeX such as x^{2} is left alone.
+    # --------------------------------------------------------
+
+    text = re.sub(
+        r"(?<!\^)([A-Za-z])\^(-?\d+)(?!\})",
+        r"$\1^{\2}$",
+        text
     )
 
-    text = text.replace(
-        "\\)",
-        "$"
+    # --------------------------------------------------------
+    # Common subscript forms.
+    # --------------------------------------------------------
+
+    text = re.sub(
+        r"(?<![_\\])([A-Za-z])_([0-9]+)",
+        r"$\1_{\2}$",
+        text
+    )
+
+    # --------------------------------------------------------
+    # If the entire line is clearly a mathematical expression
+    # and has no math delimiters, wrap it.
+    #
+    # This is deliberately conservative so ordinary English
+    # marking comments remain normal Markdown.
+    # --------------------------------------------------------
+
+    lines = text.split(
+        "\n"
+    )
+
+    rendered_lines = []
+
+    math_indicators = (
+        r"\frac",
+        r"\dfrac",
+        r"\tfrac",
+        r"\sqrt",
+        r"\int",
+        r"\sum",
+        r"\prod",
+        r"\lim",
+        r"\sin",
+        r"\cos",
+        r"\tan",
+        r"\log",
+        r"\pi",
+        r"\pm",
+        r"\leq",
+        r"\geq",
+        r"\neq",
+        r"\times",
+        r"\div",
+        r"\cdot",
+    )
+
+    for line in lines:
+
+        stripped = line.strip()
+
+        if not stripped:
+            rendered_lines.append("")
+            continue
+
+        # Already contains math delimiters.
+        if (
+            "$" in stripped
+            or any(
+                indicator in stripped
+                for indicator in math_indicators
+            )
+        ):
+            rendered_lines.append(
+                line
+            )
+            continue
+
+        # Detect simple equation/expression lines.
+        looks_mathematical = bool(
+            re.search(
+                r"(=|≤|≥|≠|\+|-|\*|/|\^|√|\b\d+[a-zA-Z]\b)",
+                stripped
+            )
+            and bool(
+                re.search(
+                    r"[A-Za-z0-9]",
+                    stripped
+                )
+            )
+        )
+
+        if looks_mathematical and len(stripped) < 180:
+
+            # Avoid converting ordinary prose containing a
+            # hyphen into mathematics.
+            if (
+                re.search(
+                    r"^[A-Za-z\s]+$",
+                    stripped
+                )
+                is None
+            ):
+
+                rendered_lines.append(
+                    "$"
+                    + stripped
+                    + "$"
+                )
+
+                continue
+
+        rendered_lines.append(
+            line
+        )
+
+    text = "\n".join(
+        rendered_lines
     )
 
     st.markdown(
@@ -1776,16 +2004,36 @@ def render_math_text(
 # ============================================================
 
 GRAPH_SAFE_LOCALS = {
-    "x": sp.symbols("x"),
-    "sin": sp.sin,
-    "cos": sp.cos,
-    "tan": sp.tan,
-    "exp": sp.exp,
-    "sqrt": sp.sqrt,
-    "log": sp.log,
-    "pi": sp.pi,
-    "E": sp.E,
-    "Abs": sp.Abs,
+
+    "x":
+        sp.symbols("x"),
+
+    "sin":
+        sp.sin,
+
+    "cos":
+        sp.cos,
+
+    "tan":
+        sp.tan,
+
+    "exp":
+        sp.exp,
+
+    "sqrt":
+        sp.sqrt,
+
+    "log":
+        sp.log,
+
+    "pi":
+        sp.pi,
+
+    "E":
+        sp.E,
+
+    "Abs":
+        sp.Abs,
 }
 
 
@@ -1901,7 +2149,10 @@ def render_graph(
 
         if x_min >= x_max:
 
-            x_min, x_max = -10.0, 10.0
+            x_min, x_max = (
+                -10.0,
+                10.0
+            )
 
         # ----------------------------------------------------
         # FUNCTION / LINE / QUADRATIC
@@ -1964,10 +2215,13 @@ def render_graph(
             ).lower()
 
             evaluation_x = (
+
                 np.pi
                 / 180.0
                 * x_data
+
                 if angle_unit == "degrees"
+
                 else x_data
             )
 
@@ -2169,7 +2423,6 @@ def render_graph(
                     )
 
         except Exception:
-
             pass
 
         ax.set_xlim(
@@ -2224,7 +2477,6 @@ def render_graph(
             )
 
         except Exception:
-
             pass
 
         return None
@@ -2912,7 +3164,9 @@ if uploaded:
             progress.progress(
                 int(
                     (
-                        (index + 1)
+                        (
+                            index + 1
+                        )
                         / len(page_images)
                     )
                     * 100
@@ -3202,9 +3456,15 @@ if results:
     # ========================================================
 
     maths_features = {
-        "surds": 0,
-        "integration": 0,
-        "formula_subject": 0
+
+        "surds":
+            0,
+
+        "integration":
+            0,
+
+        "formula_subject":
+            0
     }
 
     for page_result in results:
