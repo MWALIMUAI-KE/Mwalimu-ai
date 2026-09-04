@@ -904,4 +904,467 @@ VISUAL QUESTIONS
 ============================================================
 
 For every question involving a diagram, graph, figure,
-construction
+construction, table, apparatus or other visual element:
+
+Actually inspect the visual information.
+
+Use the visual information when solving the question.
+
+If the visual is unclear or unreadable:
+
+identify the exact question.
+
+State exactly what information is unclear.
+
+Do NOT invent missing information.
+
+
+============================================================
+GEOMETRY / CONSTRUCTION / GRAPH QUESTIONS
+============================================================
+
+For geometry, construction and graph questions, provide
+useful GeoGebra commands in this exact block:
+
+[GEOGEBRA]
+Question: ...
+Purpose: ...
+Input/Commands:
+1. ...
+2. ...
+Expected result: ...
+[/GEOGEBRA]
+
+
+============================================================
+VISUAL VERIFICATION
+============================================================
+
+For visually inspected questions, use:
+
+[VISUAL CHECK]
+Question: ...
+Visual information used: ...
+[/VISUAL CHECK]
+
+
+============================================================
+COMPLETENESS CHECK
+============================================================
+
+Finish with:
+
+[COMPLETENESS CHECK]
+Questions identified: ...
+Questions processed: ...
+Sub-questions processed: ...
+Visual questions checked: ...
+GeoGebra tasks: ...
+Unresolved/unclear items: ...
+[/COMPLETENESS CHECK]
+
+If complete, explicitly state:
+
+No question or sub-question was intentionally omitted.
+
+
+============================================================
+FINAL RULES
+============================================================
+
+Check calculations.
+
+Check units.
+
+Check signs.
+
+Check chemical formulae.
+
+Check ionic charges.
+
+Check superscripts and subscripts.
+
+Check fractions.
+
+Check mathematical notation.
+
+Check graph interpretation.
+
+Check diagram interpretation.
+
+Do not mention ChemType.
+
+Do not mention MathType.
+
+Do not claim that a diagram has been generated if
+you are merely describing the original diagram.
+
+The original visual belongs to the uploaded paper.
+The marking scheme should answer it.
+"""
+
+    response = client.responses.create(
+        model=MODEL,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_file",
+                        "file_id": f.id
+                    },
+                    {
+                        "type": "input_text",
+                        "text": prompt
+                    }
+                ]
+            }
+        ]
+    )
+
+    return response.output_text
+
+
+# ============================================================
+# MAIN MARKING SCHEME DISPLAY
+# ============================================================
+
+def main_scheme(s):
+
+    for tag in (
+        "GEOGEBRA",
+        "VISUAL CHECK",
+        "COMPLETENESS CHECK"
+    ):
+
+        s = re.sub(
+            rf"\[{tag}\].*?\[/{tag}\]",
+            "",
+            s,
+            flags=re.S | re.I
+        )
+
+    return s.strip()
+
+
+# ============================================================
+# SPECIALIST VISUAL / GEOGEBRA / COMPLETENESS OUTPUT
+# ============================================================
+
+def specialist(s):
+
+    visuals = re.findall(
+        r"\[VISUAL CHECK\](.*?)\[/VISUAL CHECK\]",
+        s,
+        flags=re.S | re.I
+    )
+
+    geo = re.findall(
+        r"\[GEOGEBRA\](.*?)\[/GEOGEBRA\]",
+        s,
+        flags=re.S | re.I
+    )
+
+    complete = re.search(
+        r"\[COMPLETENESS CHECK\](.*?)\[/COMPLETENESS CHECK\]",
+        s,
+        flags=re.S | re.I
+    )
+
+    if visuals:
+
+        st.subheader(
+            "👁️ Visual verification"
+        )
+
+        for i, x in enumerate(
+            visuals,
+            1
+        ):
+
+            with st.expander(
+                f"Visual check {i}"
+            ):
+
+                st.write(
+                    x.strip()
+                )
+
+    if geo:
+
+        st.subheader(
+            "📐 GeoGebra tasks"
+        )
+
+        for i, x in enumerate(
+            geo,
+            1
+        ):
+
+            with st.expander(
+                f"GeoGebra task {i}",
+                expanded=True
+            ):
+
+                st.code(
+                    x.strip()
+                )
+
+    if complete:
+
+        st.subheader(
+            "✅ Completeness check"
+        )
+
+        st.info(
+            complete.group(1).strip()
+        )
+
+
+# ============================================================
+# FORMULA WORKSPACE
+# ============================================================
+
+def formula_workspace(s):
+
+    st.subheader(
+        "∑ FormulAI — formula workspace"
+    )
+
+    st.caption(
+        "Mwalimu AI produces clean LaTeX notation. "
+        "FormulAI can convert equations to editable "
+        "Word-ready formulas."
+    )
+
+    st.link_button(
+        "Open FormulAI Formula Generator",
+        "https://formulai.io/formula-generator"
+    )
+
+    fs = (
+        re.findall(
+            r"\\\[(.*?)\\\]",
+            s,
+            flags=re.S
+        )
+        +
+        re.findall(
+            r"\\\((.*?)\\\)",
+            s,
+            flags=re.S
+        )
+    )
+
+    if fs:
+
+        with st.expander(
+            f"📋 Extracted formulas ({len(fs)})"
+        ):
+
+            for i, formula in enumerate(
+                fs,
+                1
+            ):
+
+                st.code(
+                    formula.strip()
+                )
+
+
+# ============================================================
+# GEOGEBRA
+# ============================================================
+
+def geogebra():
+
+    st.subheader(
+        "📐 GeoGebra"
+    )
+
+    a, b, c = st.tabs(
+        [
+            "Geometry",
+            "Graphing",
+            "Calculator"
+        ]
+    )
+
+    urls = (
+        "https://www.geogebra.org/geometry",
+        "https://www.geogebra.org/graphing",
+        "https://www.geogebra.org/calculator"
+    )
+
+    for tab, url in zip(
+        (a, b, c),
+        urls
+    ):
+
+        with tab:
+
+            components.iframe(
+                url,
+                height=650,
+                scrolling=True
+            )
+
+
+# ============================================================
+# USER INTERFACE
+# ============================================================
+
+subject = st.selectbox(
+    "Subject",
+    [
+        "Mathematics",
+        "Chemistry",
+        "Biology",
+        "Physics",
+        "Agriculture",
+        "English",
+        "Kiswahili",
+        "IRE",
+        "Other"
+    ]
+)
+
+level = st.text_input(
+    "Level / Grade",
+    "Grade 10"
+)
+
+uploaded = st.file_uploader(
+    "Upload a question paper (PDF)",
+    type=["pdf"]
+)
+
+
+# ============================================================
+# MAIN APPLICATION
+# ============================================================
+
+if uploaded:
+
+    data = uploaded.getvalue()
+
+    st.success(
+        f"Loaded: {uploaded.name}"
+    )
+
+    # --------------------------------------------------------
+    # ORIGINAL PAPER
+    # --------------------------------------------------------
+
+    show_original(
+        data
+    )
+
+    # --------------------------------------------------------
+    # NEW:
+    # ORIGINAL QUESTION VISUAL CROPS
+    # --------------------------------------------------------
+
+    show_visual_question_regions(
+        data
+    )
+
+    # --------------------------------------------------------
+    # MACHINE-READABLE TEXT TRACE
+    # --------------------------------------------------------
+
+    text = extract_pdf_text(
+        data
+    )
+
+    with st.expander(
+        "🔎 Machine-readable text trace"
+    ):
+
+        st.text(
+            text[:30000]
+        )
+
+    # --------------------------------------------------------
+    # GENERATE MARKING SCHEME
+    # --------------------------------------------------------
+
+    if st.button(
+        "📝 Generate Marking Scheme",
+        type="primary"
+    ):
+
+        with st.spinner(
+            "Analysing the original paper, including "
+            "diagrams, graphs, tables and mathematical notation..."
+        ):
+
+            try:
+
+                st.session_state[
+                    "scheme"
+                ] = analyse(
+                    data,
+                    uploaded.name,
+                    subject,
+                    level,
+                    text
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"Unable to generate marking scheme: {e}"
+                )
+
+    # --------------------------------------------------------
+    # DISPLAY GENERATED SCHEME
+    # --------------------------------------------------------
+
+    if st.session_state.get(
+        "scheme"
+    ):
+
+        s = st.session_state[
+            "scheme"
+        ]
+
+        st.divider()
+
+        st.subheader(
+            "📝 Answers / Marking Scheme"
+        )
+
+        st.caption(
+            "The original paper and original visual regions "
+            "are above. The answers and workings below "
+            "correspond to those original questions."
+        )
+
+        st.markdown(
+            main_scheme(s)
+        )
+
+        # ----------------------------------------------------
+        # VISUAL CHECKS / GEOGEBRA / COMPLETENESS
+        # ----------------------------------------------------
+
+        specialist(
+            s
+        )
+
+        # ----------------------------------------------------
+        # FORMULA WORKSPACE
+        # ----------------------------------------------------
+
+        formula_workspace(
+            s
+        )
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # GEOGEBRA
+        # ----------------------------------------------------
+
+        geogebra()
