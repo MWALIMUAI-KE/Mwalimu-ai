@@ -16,33 +16,8 @@ import sympy as sp
 
 # ============================================================
 # MWALIMU AI — MVP3.2 VISUAL MARKING
-# FINAL MATHS POLISH
+# FINAL MATHS POLISH + CONSTRUCTION V1
 # ============================================================
-#
-# MAIN TARGETS:
-#   1. SURDS
-#   2. INTEGRATION
-#   3. MAKING THE SUBJECT OF A FORMULA
-#   4. RELIABLE MATHEMATICAL RENDERING
-#
-# ORIGINAL PDF = VISUAL SOURCE OF TRUTH
-#
-# The original page is preserved.
-# Individual questions are isolated visually.
-# The solver receives:
-#   - the isolated original question
-#   - the complete original page
-#   - supporting PDF text
-#
-# The verifier independently checks the solution.
-#
-# LOW CONFIDENCE is ONLY allowed for:
-#   - genuine mathematical error
-#   - genuine essential visual ambiguity
-#
-# Technical/API/parser problems NEVER automatically become LOW.
-# ============================================================
-
 
 st.set_page_config(
     page_title="Mwalimu AI — Visual Marking",
@@ -62,10 +37,7 @@ st.caption(
 # CONFIGURATION
 # ============================================================
 
-MODEL = os.getenv(
-    "OPENAI_MODEL",
-    "gpt-5.6-luna"
-)
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
 MAX_PAGE_DIMENSION = 1800
 JPEG_QUALITY = 88
@@ -114,10 +86,7 @@ if "paper_name" not in st.session_state:
 # PDF RENDERING
 # ============================================================
 
-def render_pdf_pages(
-    pdf_bytes: bytes
-) -> List[bytes]:
-
+def render_pdf_pages(pdf_bytes: bytes) -> List[bytes]:
     pages = []
 
     document = fitz.open(
@@ -127,7 +96,6 @@ def render_pdf_pages(
 
     try:
         for page in document:
-
             rect = page.rect
 
             scale = MAX_PAGE_DIMENSION / max(
@@ -135,10 +103,7 @@ def render_pdf_pages(
                 rect.height
             )
 
-            scale = min(
-                scale,
-                2.5
-            )
+            scale = min(scale, 2.5)
 
             pix = page.get_pixmap(
                 matrix=fitz.Matrix(
@@ -154,7 +119,6 @@ def render_pdf_pages(
                     jpg_quality=JPEG_QUALITY
                 )
             )
-
     finally:
         document.close()
 
@@ -165,10 +129,7 @@ def render_pdf_pages(
 # OPTIONAL PDF TEXT
 # ============================================================
 
-def extract_page_texts(
-    pdf_bytes: bytes
-) -> List[str]:
-
+def extract_page_texts(pdf_bytes: bytes) -> List[str]:
     texts = []
 
     document = fitz.open(
@@ -178,16 +139,12 @@ def extract_page_texts(
 
     try:
         for page in document:
-
             try:
                 text = page.get_text("text")
             except Exception:
                 text = ""
 
-            texts.append(
-                text.strip()
-            )
-
+            texts.append(text.strip())
     finally:
         document.close()
 
@@ -198,18 +155,12 @@ def extract_page_texts(
 # IMAGE → DATA URL
 # ============================================================
 
-def image_to_data_url(
-    image_bytes: bytes
-) -> str:
-
+def image_to_data_url(image_bytes: bytes) -> str:
     encoded = base64.b64encode(
         image_bytes
     ).decode("utf-8")
 
-    return (
-        "data:image/jpeg;base64,"
-        + encoded
-    )
+    return "data:image/jpeg;base64," + encoded
 
 
 # ============================================================
@@ -256,31 +207,45 @@ For mathematical questions, preserve the visual structure.
 
 For example, distinguish:
 
-    sqrt(2x)
+sqrt(2x)
 
 from:
 
-    sqrt(2) x
+sqrt(2) x
 
 and distinguish:
 
-    x^2
+x^2
 
 from:
 
-    2x
+2x
 
 and distinguish:
 
-    1/(x+2)
+1/(x+2)
 
 from:
 
-    1/x + 2
+1/x + 2
 
 Do not invent missing information.
 
 If a diagram is visible, identify it explicitly.
+
+If a mathematical construction is visible or requested, identify it explicitly.
+
+A construction may include:
+- angle bisector
+- perpendicular bisector
+- perpendicular from a point to a line
+- triangle construction
+- loci
+- arcs used in construction
+- parallel/perpendicular construction
+- construction of an angle
+- division of a line
+- circle/arc construction
 
 Return JSON only:
 
@@ -292,27 +257,22 @@ Return JSON only:
     {
       "number": "1",
       "visible_text_summary": "...",
-
       "bbox": {
         "x": 0,
         "y": 0,
         "width": 0,
         "height": 0
       },
-
       "has_diagram": false,
       "diagram_description": "",
-
       "has_graph": false,
       "has_table": false,
       "has_construction": false,
-
+      "construction_description": "",
       "has_special_math_notation": false,
-
       "important_visual_features": []
     }
   ],
-
   "visual_warnings": []
 }
 """
@@ -325,8 +285,7 @@ Return JSON only:
 SOLUTION_PROMPT = r"""
 You are the SENIOR MATHEMATICS EXAMINER for Mwalimu AI.
 
-You must solve the ORIGINAL examination question shown in
-the supplied image.
+You must solve the ORIGINAL examination question shown in the supplied image.
 
 The ORIGINAL IMAGE is authoritative.
 
@@ -370,35 +329,36 @@ Pay particular attention to:
 
 Never confuse:
 
-    sqrt(a+b)
+sqrt(a+b)
 
 with:
 
-    sqrt(a) + b
+sqrt(a) + b
 
 Never confuse:
 
-    (a+b)^2
+(a+b)^2
 
 with:
 
-    a+b^2
+a+b^2
 
 Never confuse:
 
-    1/(a+b)
+1/(a+b)
 
 with:
 
-    1/a+b
+1/a+b
 
 Never confuse:
 
-    ∫x^n dx
+∫x^n dx
 
 with:
 
-    x^n
+x^n
+
 
 ============================================================
 SURDS
@@ -414,18 +374,6 @@ If the question involves surds:
 6. Do not turn an exact surd answer into a decimal unless requested.
 7. Check the final result algebraically.
 
-Use proper mathematical notation.
-
-Examples:
-
-\sqrt{12}=2\sqrt{3}
-
-\frac{1}{\sqrt{3}}=\frac{\sqrt{3}}{3}
-
-\frac{1}{a+\sqrt{b}}
-
-Use the actual expression from the image,
-not an assumed textbook version.
 
 ============================================================
 INTEGRATION
@@ -442,24 +390,6 @@ If the question involves integration:
 7. Simplify the exact answer.
 8. Check the result by differentiation when useful.
 
-For example:
-
-\[
-\int x^n\,dx =
-\frac{x^{n+1}}{n+1}+C
-\]
-
-provided \(n\neq -1\).
-
-For a definite integral:
-
-\[
-\int_a^b f(x)\,dx=F(b)-F(a)
-\]
-
-Do not omit C from an indefinite integral.
-
-Do not invent limits.
 
 ============================================================
 MAKING THE SUBJECT OF A FORMULA
@@ -477,13 +407,6 @@ If the question asks to make a particular variable the subject:
 8. State restrictions if mathematically necessary.
 9. Substitute back or otherwise verify the rearrangement.
 
-For example, do not jump directly from:
-
-\[
-y=\frac{x+a}{b}
-\]
-
-to the answer without showing the algebraic rearrangement.
 
 ============================================================
 GENERAL MATHEMATICS
@@ -502,19 +425,121 @@ The working must be sufficient for a teacher to award marks.
 
 Do not give only the final answer.
 
+
 ============================================================
 DIAGRAM QUESTIONS
 ============================================================
 
 If a diagram is involved:
 
-- use the ACTUAL visible labels;
-- use the ACTUAL visible measurements;
-- use the ACTUAL visible angles;
-- use the ACTUAL visible coordinates;
-- use the actual relationships shown;
-- do not invent missing dimensions;
-- do not assume a diagram is to scale unless the question says so.
+- use the ACTUAL visible labels
+- use the ACTUAL visible measurements
+- use the ACTUAL visible angles
+- use the ACTUAL visible coordinates
+- use the actual relationships shown
+- do not invent missing dimensions
+- do not assume a diagram is to scale unless the question says so
+
+
+============================================================
+MATHEMATICAL CONSTRUCTIONS
+============================================================
+
+If the question requires a mathematical construction:
+
+DO NOT attempt to draw the construction using text characters.
+
+Instead, identify the construction mathematically and return a
+construction_spec so that the application can generate the geometry.
+
+The application supports Construction V1:
+
+- angle_bisector
+- perpendicular_bisector
+- perpendicular_from_point
+- triangle_from_sides
+- angle_construction
+- line_division
+- circle_or_arc
+
+For a construction:
+
+1. Identify the construction type.
+2. Identify all visible/given points.
+3. Identify all visible/given lengths.
+4. Identify all visible/given angles.
+5. Identify the line or segment being constructed.
+6. Identify construction arcs where appropriate.
+7. Identify labels.
+8. Do not invent dimensions.
+9. If the construction is insufficiently specified, set
+   "required": false and explain why in the construction description.
+10. If sufficiently specified, return a construction_spec.
+
+The construction_spec structure is:
+
+{
+  "required": false,
+  "construction_type": "none",
+  "point_labels": [],
+  "points": [],
+  "lengths": [],
+  "angles": [],
+  "target_point": "",
+  "base_line": [],
+  "arc_data": [],
+  "show_construction_arcs": true,
+  "show_construction_lines": true,
+  "show_labels": true,
+  "title": ""
+}
+
+Point format:
+
+{
+  "label": "A",
+  "x": 0,
+  "y": 0
+}
+
+For triangle_from_sides, use:
+
+{
+  "required": true,
+  "construction_type": "triangle_from_sides",
+  "point_labels": ["A","B","C"],
+  "points": [
+    {"label":"A","x":0,"y":0},
+    {"label":"B","x":5,"y":0}
+  ],
+  "lengths": [
+    {"from":"A","to":"B","value":5},
+    {"from":"A","to":"C","value":4},
+    {"from":"B","to":"C","value":3}
+  ],
+  "angles": [],
+  "target_point": "C",
+  "base_line": ["A","B"],
+  "arc_data": [],
+  "show_construction_arcs": true,
+  "show_construction_lines": true,
+  "show_labels": true,
+  "title": "Construction of triangle ABC"
+}
+
+For an angle bisector, identify the vertex and the two rays.
+
+For a perpendicular bisector, identify the two endpoints of the
+segment.
+
+For a perpendicular from a point to a line, identify the point and
+the two endpoints of the line segment where possible.
+
+For construction arcs, the Python engine will calculate their
+geometry from the supplied points and lengths.
+
+Never place arbitrary Python code inside construction_spec.
+
 
 ============================================================
 GRAPHING
@@ -522,22 +547,22 @@ GRAPHING
 
 If the question requires a graph, independently identify and preserve:
 
-- the equation or function;
-- graph type;
-- domain;
-- supplied coordinates;
-- table values;
-- intercepts;
-- axis labels;
-- point requirements;
-- joining requirements;
-- shading requirements;
-- specified scale or axis limits.
+- the equation or function
+- graph type
+- domain
+- supplied coordinates
+- table values
+- intercepts
+- axis labels
+- point requirements
+- joining requirements
+- shading requirements
+- specified scale or axis limits
 
 Do NOT claim that a graph has already been drawn by the AI.
 
-Instead, return a graph_spec that allows the application
-to generate the graph mathematically.
+Instead, return a graph_spec that allows the application to generate
+the graph mathematically.
 
 For PP2 V1, use only these graph types:
 
@@ -563,30 +588,6 @@ If it DOES require a graph:
 
 "required": true
 
-Return this graph_spec structure:
-
-{
-  "required": false,
-  "graph_type": "none | line | quadratic | function | points",
-  "expression": "",
-  "x_values": [],
-  "y_values": [],
-  "x_min": -10,
-  "x_max": 10,
-  "y_min": null,
-  "y_max": null,
-  "x_label": "x",
-  "y_label": "y",
-  "show_points": false,
-  "connect_points": false,
-  "shade": false,
-  "shade_direction": "",
-  "angle_unit": "radians",
-  "title": ""
-}
-
-Never invent a domain, range, scale, coordinate or graph
-requirement that is not supported by the question.
 
 ============================================================
 CONFIDENCE
@@ -594,17 +595,17 @@ CONFIDENCE
 
 Do NOT use LOW confidence merely because:
 
-- the question is difficult;
-- the mathematics is advanced;
-- a diagram exists;
-- surds are present;
-- integration is present;
-- algebra is complicated;
-- LaTeX is used;
-- the answer is long;
-- the model is generally uncertain;
-- JSON formatting is imperfect;
-- an API/technical problem occurred.
+- the question is difficult
+- the mathematics is advanced
+- a diagram exists
+- surds are present
+- integration is present
+- algebra is complicated
+- LaTeX is used
+- the answer is long
+- the model is generally uncertain
+- JSON formatting is imperfect
+- an API/technical problem occurred
 
 LOW confidence is allowed ONLY when:
 
@@ -612,25 +613,20 @@ A. There is a genuine mathematical error.
 
 OR
 
-B. Essential visual information is genuinely unreadable
-or ambiguous.
+B. Essential visual information is genuinely unreadable or ambiguous.
 
-If the mathematics is correct and the necessary visual
-information is readable, confidence should normally be HIGH.
+If the mathematics is correct and the necessary visual information is
+readable, confidence should normally be HIGH.
 
-Return JSON only:
+
+============================================================
+RETURN JSON ONLY
+============================================================
 
 {
   "question_number": "...",
-
   "method": "...",
-
-  "working": [
-    "...",
-    "...",
-    "..."
-  ],
-
+  "working": ["...", "...", "..."],
   "final_answer": "...",
 
   "marking_scheme": [
@@ -641,7 +637,6 @@ Return JSON only:
   ],
 
   "visual_dependency": "none | low | medium | high",
-
   "visual_check": "...",
 
   "graph_spec": {
@@ -664,10 +659,24 @@ Return JSON only:
     "title": ""
   },
 
+  "construction_spec": {
+    "required": false,
+    "construction_type": "none",
+    "point_labels": [],
+    "points": [],
+    "lengths": [],
+    "angles": [],
+    "target_point": "",
+    "base_line": [],
+    "arc_data": [],
+    "show_construction_arcs": true,
+    "show_construction_lines": true,
+    "show_labels": true,
+    "title": ""
+  },
+
   "confidence": "high | medium | low",
-
   "confidence_reason": "...",
-
   "warning": ""
 }
 """
@@ -681,8 +690,8 @@ VERIFICATION_PROMPT = r"""
 You are the FINAL INDEPENDENT MATHEMATICS VERIFICATION EXAMINER
 for Mwalimu AI.
 
-Compare the generated solution against the ORIGINAL QUESTION
-IMAGE and the COMPLETE ORIGINAL PAGE.
+Compare the generated solution against the ORIGINAL QUESTION IMAGE
+and the COMPLETE ORIGINAL PAGE.
 
 The original image is authoritative.
 
@@ -690,21 +699,23 @@ Do not merely agree with the generated solution.
 
 Independently check the mathematics.
 
+
 ============================================================
 CHECK 1 — QUESTION READING
 ============================================================
 
 Confirm that:
 
-- the correct question was solved;
-- all visible numbers were read correctly;
-- fractions were read correctly;
-- signs were read correctly;
-- powers and indices were read correctly;
-- roots and surds were read correctly;
-- brackets were read correctly;
-- integration symbols and limits were read correctly;
-- diagram labels were read correctly.
+- the correct question was solved
+- all visible numbers were read correctly
+- fractions were read correctly
+- signs were read correctly
+- powers and indices were read correctly
+- roots and surds were read correctly
+- brackets were read correctly
+- integration symbols and limits were read correctly
+- diagram labels were read correctly
+
 
 ============================================================
 CHECK 2 — SURDS
@@ -712,11 +723,12 @@ CHECK 2 — SURDS
 
 If surds are present:
 
-- verify simplification;
-- verify multiplication/division;
-- verify collection of like surds;
-- verify rationalisation;
-- verify the final exact answer.
+- verify simplification
+- verify multiplication/division
+- verify collection of like surds
+- verify rationalisation
+- verify the final exact answer
+
 
 ============================================================
 CHECK 3 — INTEGRATION
@@ -724,13 +736,14 @@ CHECK 3 — INTEGRATION
 
 If integration is present:
 
-- verify the integrand;
-- verify the integration rule;
-- verify powers;
-- verify coefficients;
-- verify the constant of integration where required;
-- verify limits for definite integrals;
-- differentiate the result mentally/algebraically where useful.
+- verify the integrand
+- verify the integration rule
+- verify powers
+- verify coefficients
+- verify the constant of integration where required
+- verify limits for definite integrals
+- differentiate the result mentally/algebraically where useful
+
 
 ============================================================
 CHECK 4 — MAKING SUBJECT OF FORMULA
@@ -738,12 +751,13 @@ CHECK 4 — MAKING SUBJECT OF FORMULA
 
 If algebraic rearrangement is present:
 
-- verify every rearrangement;
-- verify signs;
-- verify denominators;
-- verify powers;
-- verify roots;
-- verify that the requested variable is actually the subject.
+- verify every rearrangement
+- verify signs
+- verify denominators
+- verify powers
+- verify roots
+- verify that the requested variable is actually the subject
+
 
 ============================================================
 CHECK 5 — DIAGRAM
@@ -751,12 +765,40 @@ CHECK 5 — DIAGRAM
 
 If a diagram is involved:
 
-- verify visible labels;
-- verify dimensions;
-- verify angles;
-- verify coordinates;
-- verify geometric relationships;
-- do not invent missing information.
+- verify visible labels
+- verify dimensions
+- verify angles
+- verify coordinates
+- verify geometric relationships
+- do not invent missing information
+
+
+============================================================
+CHECK 6 — CONSTRUCTION
+============================================================
+
+If a mathematical construction is involved:
+
+Independently verify:
+
+- construction type
+- point labels
+- supplied lengths
+- supplied angles
+- base line
+- target point
+- geometric relationships
+- construction arcs
+- perpendicular or bisector relationships
+- triangle side relationships
+
+A technical failure to render a construction is NOT itself a
+mathematical error.
+
+A wrong construction type, wrong supplied measurement, wrong
+geometric relationship, or mathematically incorrect construction_spec
+IS a genuine mathematical error.
+
 
 ============================================================
 GRAPH VERIFICATION
@@ -764,35 +806,20 @@ GRAPH VERIFICATION
 
 If the question requires a graph, independently verify:
 
-- the equation or function;
-- graph type;
-- domain;
-- supplied coordinates;
-- table values;
-- intercepts;
-- axis labels;
-- point requirements;
-- joining requirements;
-- general mathematical shape.
+- equation/function
+- graph type
+- domain
+- supplied coordinates
+- table values
+- intercepts
+- axis labels
+- point requirements
+- joining requirements
+- general mathematical shape
 
-A technical failure to render a graph is NOT itself
-a mathematical error.
+A technical failure to render a graph is NOT itself a mathematical
+error.
 
-A wrong equation, wrong coordinates, wrong domain,
-wrong graph type, or mathematically incorrect graph
-specification IS a genuine mathematical error.
-
-Do NOT claim that a graph has been drawn by the AI.
-
-Instead, verify the graph_spec that allows the application
-to generate the graph mathematically.
-
-For PP2 V1, use only:
-
-- line
-- quadratic
-- function
-- points
 
 ============================================================
 CONFIDENCE RULE
@@ -800,16 +827,16 @@ CONFIDENCE RULE
 
 LOW confidence MUST NOT be used merely because:
 
-- the question is difficult;
-- a diagram exists;
-- surds are present;
-- integration is present;
-- algebra is complicated;
-- LaTeX is present;
-- the solution is lengthy;
-- the verifier has general uncertainty;
-- formatting is imperfect;
-- a technical service failed.
+- the question is difficult
+- a diagram exists
+- surds are present
+- integration is present
+- algebra is complicated
+- LaTeX is present
+- the solution is lengthy
+- the verifier has general uncertainty
+- formatting is imperfect
+- a technical service failed
 
 LOW is ONLY permitted when:
 
@@ -817,13 +844,15 @@ A. There is a genuine mathematical error.
 
 OR
 
-B. Essential visual information is genuinely unreadable
-or ambiguous.
+B. Essential visual information is genuinely unreadable or ambiguous.
 
-If the mathematics is correct and the visual information
-is sufficiently clear, return HIGH.
+If the mathematics is correct and the visual information is
+sufficiently clear, return HIGH.
 
-Return JSON only:
+
+============================================================
+RETURN JSON ONLY
+============================================================
 
 {
   "verified": true,
@@ -840,24 +869,21 @@ Return JSON only:
 # JSON PARSER
 # ============================================================
 
-def parse_json_response(
-    text: str
-) -> Dict[str, Any]:
-
+def parse_json_response(text: str) -> Dict[str, Any]:
     if not text:
         return {}
 
     text = text.strip()
 
     text = re.sub(
-        r"^```(?:json)?\s*",
+        r"^\s*```(?:json)?\s*",
         "",
         text,
         flags=re.IGNORECASE
     )
 
     text = re.sub(
-        r"\s*```$",
+        r"\s*```\s*$",
         "",
         text
     )
@@ -865,36 +891,22 @@ def parse_json_response(
     try:
         parsed = json.loads(text)
 
-        if isinstance(
-            parsed,
-            dict
-        ):
+        if isinstance(parsed, dict):
             return parsed
-
     except Exception:
         pass
 
-    start = text.find(
-        "{"
-    )
-
-    end = text.rfind(
-        "}"
-    )
+    start = text.find("{")
+    end = text.rfind("}")
 
     if start >= 0 and end > start:
-
         try:
             parsed = json.loads(
                 text[start:end + 1]
             )
 
-            if isinstance(
-                parsed,
-                dict
-            ):
+            if isinstance(parsed, dict):
                 return parsed
-
         except Exception:
             pass
 
@@ -911,42 +923,14 @@ def normalise_bbox(
     image_height: int
 ) -> Optional[Dict[str, int]]:
 
-    if not isinstance(
-        bbox,
-        dict
-    ):
+    if not isinstance(bbox, dict):
         return None
 
     try:
-
-        x = int(
-            bbox.get(
-                "x",
-                0
-            )
-        )
-
-        y = int(
-            bbox.get(
-                "y",
-                0
-            )
-        )
-
-        width = int(
-            bbox.get(
-                "width",
-                0
-            )
-        )
-
-        height = int(
-            bbox.get(
-                "height",
-                0
-            )
-        )
-
+        x = int(bbox.get("x", 0))
+        y = int(bbox.get("y", 0))
+        width = int(bbox.get("width", 0))
+        height = int(bbox.get("height", 0))
     except Exception:
         return None
 
@@ -955,18 +939,12 @@ def normalise_bbox(
 
     x = max(
         0,
-        min(
-            x,
-            image_width - 1
-        )
+        min(x, image_width - 1)
     )
 
     y = max(
         0,
-        min(
-            y,
-            image_height - 1
-        )
+        min(y, image_height - 1)
     )
 
     width = min(
@@ -1000,14 +978,9 @@ def crop_original_question(
 ) -> Optional[bytes]:
 
     try:
-
         image = Image.open(
-            io.BytesIO(
-                image_bytes
-            )
-        ).convert(
-            "RGB"
-        )
+            io.BytesIO(image_bytes)
+        ).convert("RGB")
 
         image_width, image_height = image.size
 
@@ -1027,30 +1000,18 @@ def crop_original_question(
 
         margin_x = max(
             18,
-            int(
-                width *
-                QUESTION_CROP_MARGIN
-            )
+            int(width * QUESTION_CROP_MARGIN)
         )
 
         margin_y = max(
             18,
-            int(
-                height *
-                QUESTION_CROP_MARGIN
-            )
+            int(height * QUESTION_CROP_MARGIN)
         )
 
         crop = image.crop(
             (
-                max(
-                    0,
-                    x - margin_x
-                ),
-                max(
-                    0,
-                    y - margin_y
-                ),
+                max(0, x - margin_x),
+                max(0, y - margin_y),
                 min(
                     image_width,
                     x + width + margin_x
@@ -1087,50 +1048,84 @@ def analyse_page(
 ) -> Dict[str, Any]:
 
     response = client.responses.create(
-
         model=MODEL,
-
         input=[
-
             {
                 "role": "user",
-
                 "content": [
-
                     {
                         "type": "input_text",
-
-                        "text":
+                        "text": (
                             PAGE_ANALYSIS_PROMPT
                             + "\n\nPAGE NUMBER:\n"
-                            + str(
-                                page_number
-                            )
+                            + str(page_number)
                             + "\n\nSUPPORTING PDF TEXT:\n"
                             + extracted_text[:12000]
+                        )
                     },
-
                     {
                         "type": "input_image",
-
-                        "image_url":
-                            image_to_data_url(
-                                image_bytes
-                            ),
-
-                        "detail":
-                            "high"
+                        "image_url": image_to_data_url(
+                            image_bytes
+                        ),
+                        "detail": "high"
                     }
-
                 ]
             }
-
         ]
     )
 
     return parse_json_response(
         response.output_text
     )
+
+
+# ============================================================
+# DEFAULT GRAPH SPEC
+# ============================================================
+
+def default_graph_spec() -> Dict[str, Any]:
+    return {
+        "required": False,
+        "graph_type": "none",
+        "expression": "",
+        "x_values": [],
+        "y_values": [],
+        "x_min": -10,
+        "x_max": 10,
+        "y_min": None,
+        "y_max": None,
+        "x_label": "x",
+        "y_label": "y",
+        "show_points": False,
+        "connect_points": False,
+        "shade": False,
+        "shade_direction": "",
+        "angle_unit": "radians",
+        "title": ""
+    }
+
+
+# ============================================================
+# DEFAULT CONSTRUCTION SPEC
+# ============================================================
+
+def default_construction_spec() -> Dict[str, Any]:
+    return {
+        "required": False,
+        "construction_type": "none",
+        "point_labels": [],
+        "points": [],
+        "lengths": [],
+        "angles": [],
+        "target_point": "",
+        "base_line": [],
+        "arc_data": [],
+        "show_construction_arcs": True,
+        "show_construction_lines": True,
+        "show_labels": True,
+        "title": ""
+    }
 
 
 # ============================================================
@@ -1146,18 +1141,13 @@ def solve_question(
 ) -> Dict[str, Any]:
 
     question_number = str(
-        question.get(
-            "number",
-            ""
-        )
+        question.get("number", "")
     ).strip()
 
     prompt = (
         SOLUTION_PROMPT
         + "\n\nPAGE NUMBER:\n"
-        + str(
-            page_number
-        )
+        + str(page_number)
         + "\n\nQUESTION NUMBER:\n"
         + question_number
         + "\n\nVISIBLE QUESTION SUMMARY:\n"
@@ -1174,6 +1164,13 @@ def solve_question(
                 ""
             )
         )
+        + "\n\nCONSTRUCTION DESCRIPTION:\n"
+        + str(
+            question.get(
+                "construction_description",
+                ""
+            )
+        )
         + "\n\nIMPORTANT VISUAL FEATURES:\n"
         + json.dumps(
             question.get(
@@ -1187,23 +1184,21 @@ def solve_question(
     )
 
     content = [
-
         {
             "type": "input_text",
             "text": prompt
         }
-
     ]
 
     if question_image_bytes:
-
         content.append(
             {
                 "type": "input_text",
                 "text": (
                     "PRIMARY QUESTION IMAGE: "
                     "Read the exact mathematical expression "
-                    "from this isolated original question."
+                    "and construction information from this "
+                    "isolated original question."
                 )
             }
         )
@@ -1211,14 +1206,10 @@ def solve_question(
         content.append(
             {
                 "type": "input_image",
-
-                "image_url":
-                    image_to_data_url(
-                        question_image_bytes
-                    ),
-
-                "detail":
-                    "high"
+                "image_url": image_to_data_url(
+                    question_image_bytes
+                ),
+                "detail": "high"
             }
         )
 
@@ -1227,8 +1218,9 @@ def solve_question(
             "type": "input_text",
             "text": (
                 "COMPLETE ORIGINAL PAGE: "
-                "Use this to verify context, question continuation "
-                "and surrounding diagram information."
+                "Use this to verify context, question "
+                "continuation and surrounding diagram "
+                "or construction information."
             )
         }
     )
@@ -1236,23 +1228,16 @@ def solve_question(
     content.append(
         {
             "type": "input_image",
-
-            "image_url":
-                image_to_data_url(
-                    page_image_bytes
-                ),
-
-            "detail":
-                "high"
+            "image_url": image_to_data_url(
+                page_image_bytes
+            ),
+            "detail": "high"
         }
     )
 
     try:
-
         response = client.responses.create(
-
             model=MODEL,
-
             input=[
                 {
                     "role": "user",
@@ -1266,127 +1251,63 @@ def solve_question(
         )
 
         if not result:
-
             return {
-
-                "question_number":
-                    question_number,
-
-                "method":
-                    "",
-
-                "working":
-                    [],
-
-                "final_answer":
-                    response.output_text,
-
-                "marking_scheme":
-                    [],
-
-                "visual_dependency":
-                    "medium",
-
-                "visual_check":
-                    "",
-
-                "graph_spec":
-                    {
-                        "required": False,
-                        "graph_type": "none",
-                        "expression": "",
-                        "x_values": [],
-                        "y_values": [],
-                        "x_min": -10,
-                        "x_max": 10,
-                        "y_min": None,
-                        "y_max": None,
-                        "x_label": "x",
-                        "y_label": "y",
-                        "show_points": False,
-                        "connect_points": False,
-                        "shade": False,
-                        "shade_direction": "",
-                        "angle_unit": "radians",
-                        "title": ""
-                    },
-
-                "confidence":
-                    "medium",
-
-                "confidence_reason":
+                "question_number": question_number,
+                "method": "",
+                "working": [],
+                "final_answer": response.output_text,
+                "marking_scheme": [],
+                "visual_dependency": "medium",
+                "visual_check": "",
+                "graph_spec": default_graph_spec(),
+                "construction_spec": default_construction_spec(),
+                "confidence": "medium",
+                "confidence_reason": (
                     "The mathematical response was generated, "
                     "but its JSON structure could not be parsed. "
                     "This is a technical issue, not evidence of "
-                    "a mathematical error.",
-
-                "warning":
+                    "a mathematical error."
+                ),
+                "warning": (
                     "Model response could not be parsed as JSON."
+                )
             }
 
-        result[
-            "question_number"
-        ] = question_number
+        result["question_number"] = question_number
+
+        if not isinstance(
+            result.get("graph_spec"),
+            dict
+        ):
+            result["graph_spec"] = default_graph_spec()
+
+        if not isinstance(
+            result.get("construction_spec"),
+            dict
+        ):
+            result["construction_spec"] = (
+                default_construction_spec()
+            )
 
         return result
 
     except Exception as exc:
-
         return {
-
-            "question_number":
-                question_number,
-
-            "method":
-                "",
-
-            "working":
-                [],
-
-            "final_answer":
-                "",
-
-            "marking_scheme":
-                [],
-
-            "visual_dependency":
-                "medium",
-
-            "visual_check":
-                "",
-
-            "graph_spec":
-                {
-                    "required": False,
-                    "graph_type": "none",
-                    "expression": "",
-                    "x_values": [],
-                    "y_values": [],
-                    "x_min": -10,
-                    "x_max": 10,
-                    "y_min": None,
-                    "y_max": None,
-                    "x_label": "x",
-                    "y_label": "y",
-                    "show_points": False,
-                    "connect_points": False,
-                    "shade": False,
-                    "shade_direction": "",
-                    "angle_unit": "radians",
-                    "title": ""
-                },
-
-            "confidence":
-                "medium",
-
-            "confidence_reason":
+            "question_number": question_number,
+            "method": "",
+            "working": [],
+            "final_answer": "",
+            "marking_scheme": [],
+            "visual_dependency": "medium",
+            "visual_check": "",
+            "graph_spec": default_graph_spec(),
+            "construction_spec": default_construction_spec(),
+            "confidence": "medium",
+            "confidence_reason": (
                 "The solution service was unavailable. "
-                "This is not evidence of a mathematical error.",
-
-            "warning":
-                str(
-                    exc
-                )
+                "This is not evidence of a mathematical error."
+            ),
+            "warning": str(exc)
         }
 
 
@@ -1405,9 +1326,7 @@ def verify_solution(
     prompt = (
         VERIFICATION_PROMPT
         + "\n\nPAGE NUMBER:\n"
-        + str(
-            page_number
-        )
+        + str(page_number)
         + "\n\nQUESTION METADATA:\n"
         + json.dumps(
             question,
@@ -1423,16 +1342,13 @@ def verify_solution(
     )
 
     content = [
-
         {
             "type": "input_text",
             "text": prompt
         }
-
     ]
 
     if question_image_bytes:
-
         content.append(
             {
                 "type": "input_text",
@@ -1447,14 +1363,10 @@ def verify_solution(
         content.append(
             {
                 "type": "input_image",
-
-                "image_url":
-                    image_to_data_url(
-                        question_image_bytes
-                    ),
-
-                "detail":
-                    "high"
+                "image_url": image_to_data_url(
+                    question_image_bytes
+                ),
+                "detail": "high"
             }
         )
 
@@ -1471,23 +1383,16 @@ def verify_solution(
     content.append(
         {
             "type": "input_image",
-
-            "image_url":
-                image_to_data_url(
-                    page_image_bytes
-                ),
-
-            "detail":
-                "high"
+            "image_url": image_to_data_url(
+                page_image_bytes
+            ),
+            "detail": "high"
         }
     )
 
     try:
-
         response = client.responses.create(
-
             model=MODEL,
-
             input=[
                 {
                     "role": "user",
@@ -1504,54 +1409,29 @@ def verify_solution(
             return result
 
         return {
-
-            "verified":
-                False,
-
-            "confidence":
-                "medium",
-
-            "reason":
+            "verified": False,
+            "confidence": "medium",
+            "reason": (
                 "Verification response formatting issue. "
-                "No mathematical error was established.",
-
-            "mathematical_error":
-                False,
-
-            "visual_ambiguity":
-                False,
-
-            "recommended_action":
-                "accept"
+                "No mathematical error was established."
+            ),
+            "mathematical_error": False,
+            "visual_ambiguity": False,
+            "recommended_action": "accept"
         }
 
     except Exception as exc:
-
         return {
-
-            "verified":
-                False,
-
-            "confidence":
-                "medium",
-
-            "reason":
+            "verified": False,
+            "confidence": "medium",
+            "reason": (
                 "Verification service unavailable. "
-                "No mathematical error was established.",
-
-            "mathematical_error":
-                False,
-
-            "visual_ambiguity":
-                False,
-
-            "recommended_action":
-                "accept",
-
-            "technical_error":
-                str(
-                    exc
-                )
+                "No mathematical error was established."
+            ),
+            "mathematical_error": False,
+            "visual_ambiguity": False,
+            "recommended_action": "accept",
+            "technical_error": str(exc)
         }
 
 
@@ -1568,24 +1448,21 @@ def apply_verification(
         verification.get(
             "mathematical_error",
             False
-        )
-        is True
+        ) is True
     )
 
     visual_ambiguity = (
         verification.get(
             "visual_ambiguity",
             False
-        )
-        is True
+        ) is True
     )
 
     verified = (
         verification.get(
             "verified",
             False
-        )
-        is True
+        ) is True
     )
 
     verifier_confidence = str(
@@ -1595,22 +1472,13 @@ def apply_verification(
         )
     ).lower().strip()
 
-    if (
-        mathematical_error
-        or visual_ambiguity
-    ):
-
+    if mathematical_error or visual_ambiguity:
         final_confidence = "low"
 
-    elif (
-        verified
-        and verifier_confidence == "high"
-    ):
-
+    elif verified and verifier_confidence == "high":
         final_confidence = "high"
 
     else:
-
         final_confidence = "medium"
 
     reason = str(
@@ -1621,61 +1489,38 @@ def apply_verification(
     ).strip()
 
     if not reason:
-
         if final_confidence == "high":
-
             reason = (
                 "Independent verification found no genuine "
                 "mathematical error or essential visual ambiguity."
             )
 
         elif final_confidence == "low":
-
             reason = (
                 "Independent verification identified a genuine "
                 "mathematical or essential visual issue."
             )
 
         else:
-
             reason = (
                 "The result was not given high confidence by "
                 "independent verification. No genuine mathematical "
                 "error was established."
             )
 
-    solution[
-        "confidence"
-    ] = final_confidence
+    solution["confidence"] = final_confidence
+    solution["confidence_reason"] = reason
 
-    solution[
-        "confidence_reason"
-    ] = reason
-
-    solution[
-        "verification"
-    ] = {
-
-        "verified":
-            verified,
-
-        "confidence":
-            final_confidence,
-
-        "reason":
-            reason,
-
-        "mathematical_error":
-            mathematical_error,
-
-        "visual_ambiguity":
-            visual_ambiguity,
-
-        "recommended_action":
-            verification.get(
-                "recommended_action",
-                "accept"
-            )
+    solution["verification"] = {
+        "verified": verified,
+        "confidence": final_confidence,
+        "reason": reason,
+        "mathematical_error": mathematical_error,
+        "visual_ambiguity": visual_ambiguity,
+        "recommended_action": verification.get(
+            "recommended_action",
+            "accept"
+        )
     }
 
     return solution
@@ -1685,29 +1530,17 @@ def apply_verification(
 # LATEX / MATHEMATICAL RENDERING
 # ============================================================
 
-def _clean_math_text(
-    text: str
-) -> str:
+def _clean_math_text(text: str) -> str:
     """
-    Clean common model-generated mathematical wrappers while
-    preserving valid LaTeX.
-
-    The goal is to make the renderer tolerant of:
-      \\[ ... \\]
-      \\( ... \\)
-      $$ ... $$
-      $ ... $
-    and common escaped/newline formatting.
+    Clean common model-generated mathematical wrappers
+    while preserving valid LaTeX.
     """
 
-    text = str(
-        text
-    ).strip()
+    text = str(text).strip()
 
     if not text:
         return ""
 
-    # Normalise line endings.
     text = text.replace(
         "\r\n",
         "\n"
@@ -1716,7 +1549,6 @@ def _clean_math_text(
         "\n"
     )
 
-    # Remove accidental code fences.
     text = re.sub(
         r"^\s*```(?:latex|tex|math)?\s*",
         "",
@@ -1730,28 +1562,26 @@ def _clean_math_text(
         text
     )
 
-    # Convert display delimiters to Streamlit-friendly delimiters.
     text = text.replace(
-        r"\[",
+        "\\[",
         "$$"
     )
 
     text = text.replace(
-        r"\]",
+        "\\]",
         "$$"
     )
 
     text = text.replace(
-        r"\(",
+        "\\(",
         "$"
     )
 
     text = text.replace(
-        r"\)",
+        "\\)",
         "$"
     )
 
-    # Some model responses contain HTML line breaks.
     text = re.sub(
         r"<br\s*/?>",
         "\n",
@@ -1759,7 +1589,6 @@ def _clean_math_text(
         flags=re.IGNORECASE
     )
 
-    # Remove unnecessary whitespace immediately inside math delimiters.
     text = re.sub(
         r"\$\$\s+",
         "$$",
@@ -1772,81 +1601,39 @@ def _clean_math_text(
         text
     )
 
-    text = re.sub(
-        r"\$\s+",
-        "$",
-        text
-    )
-
-    text = re.sub(
-        r"\s+\$",
-        "$",
-        text
-    )
-
     return text.strip()
 
 
-def render_math_text(
-    text: Any
-):
+def render_math_text(text: Any):
     """
     Render AI-generated mathematical text safely.
-
-    Strategy:
-      1. Preserve genuine LaTeX.
-      2. Preserve normal prose.
-      3. Detect common plain-text mathematical notation.
-      4. Convert only safe/simple cases.
-      5. Send the result through Streamlit Markdown.
     """
 
     if text is None:
         return
 
-    text = _clean_math_text(
-        text
-    )
+    text = _clean_math_text(text)
 
     if not text:
         return
 
-    # --------------------------------------------------------
-    # Common plain-text replacements.
-    # These are intentionally conservative.
-    # --------------------------------------------------------
-
     replacements = [
-
-        # Square root notation.
-        (
-            r"√(",
-            r"\sqrt{"
-        ),
-
-        # Unicode minus → standard minus.
         (
             "−",
             "-"
         ),
-
-        # Unicode multiplication sign.
         (
             "×",
             r"\times "
         ),
-
-        # Unicode division sign.
         (
             "÷",
             r"\div "
         ),
-
-        # Common degree symbol.
         (
             "°",
             r"^\circ"
-        ),
+        )
     ]
 
     for old, new in replacements:
@@ -1855,57 +1642,28 @@ def render_math_text(
             new
         )
 
-    # --------------------------------------------------------
-    # Convert simple √number / √variable forms.
-    # Do NOT aggressively rewrite arbitrary text.
-    # --------------------------------------------------------
-
+    # Simple square-root notation.
     text = re.sub(
         r"√\s*([A-Za-z0-9]+)",
         r"$\\sqrt{\1}$",
         text
     )
 
-    # --------------------------------------------------------
-    # Convert common ^ exponent patterns only when they are
-    # outside existing LaTeX braces.
-    #
-    # Examples:
-    #   x^2  -> x^{2}
-    #   x^10 -> x^{10}
-    #   a^-2 -> a^{-2}
-    #
-    # Existing LaTeX such as x^{2} is left alone.
-    # --------------------------------------------------------
-
+    # Simple exponent patterns.
     text = re.sub(
         r"(?<!\^)([A-Za-z])\^(-?\d+)(?!\})",
         r"$\1^{\2}$",
         text
     )
 
-    # --------------------------------------------------------
-    # Common subscript forms.
-    # --------------------------------------------------------
-
+    # Simple subscript patterns.
     text = re.sub(
         r"(?<![_\\])([A-Za-z])_([0-9]+)",
         r"$\1_{\2}$",
         text
     )
 
-    # --------------------------------------------------------
-    # If the entire line is clearly a mathematical expression
-    # and has no math delimiters, wrap it.
-    #
-    # This is deliberately conservative so ordinary English
-    # marking comments remain normal Markdown.
-    # --------------------------------------------------------
-
-    lines = text.split(
-        "\n"
-    )
-
+    lines = text.split("\n")
     rendered_lines = []
 
     math_indicators = (
@@ -1932,14 +1690,12 @@ def render_math_text(
     )
 
     for line in lines:
-
         stripped = line.strip()
 
         if not stripped:
             rendered_lines.append("")
             continue
 
-        # Already contains math delimiters.
         if (
             "$" in stripped
             or any(
@@ -1947,12 +1703,9 @@ def render_math_text(
                 for indicator in math_indicators
             )
         ):
-            rendered_lines.append(
-                line
-            )
+            rendered_lines.append(line)
             continue
 
-        # Detect simple equation/expression lines.
         looks_mathematical = bool(
             re.search(
                 r"(=|≤|≥|≠|\+|-|\*|/|\^|√|\b\d+[a-zA-Z]\b)",
@@ -1966,37 +1719,24 @@ def render_math_text(
             )
         )
 
-        if looks_mathematical and len(stripped) < 180:
-
-            # Avoid converting ordinary prose containing a
-            # hyphen into mathematics.
-            if (
-                re.search(
-                    r"^[A-Za-z\s]+$",
-                    stripped
-                )
-                is None
-            ):
-
+        if (
+            looks_mathematical
+            and len(stripped) < 180
+        ):
+            if re.search(
+                r"^[A-Za-z\s]+$",
+                stripped
+            ) is None:
                 rendered_lines.append(
-                    "$"
-                    + stripped
-                    + "$"
+                    "$" + stripped + "$"
                 )
-
                 continue
 
-        rendered_lines.append(
-            line
-        )
+        rendered_lines.append(line)
 
-    text = "\n".join(
-        rendered_lines
-    )
+    text = "\n".join(rendered_lines)
 
-    st.markdown(
-        text
-    )
+    st.markdown(text)
 
 
 # ============================================================
@@ -2004,43 +1744,20 @@ def render_math_text(
 # ============================================================
 
 GRAPH_SAFE_LOCALS = {
-
-    "x":
-        sp.symbols("x"),
-
-    "sin":
-        sp.sin,
-
-    "cos":
-        sp.cos,
-
-    "tan":
-        sp.tan,
-
-    "exp":
-        sp.exp,
-
-    "sqrt":
-        sp.sqrt,
-
-    "log":
-        sp.log,
-
-    "pi":
-        sp.pi,
-
-    "E":
-        sp.E,
-
-    "Abs":
-        sp.Abs,
+    "x": sp.symbols("x"),
+    "sin": sp.sin,
+    "cos": sp.cos,
+    "tan": sp.tan,
+    "exp": sp.exp,
+    "sqrt": sp.sqrt,
+    "log": sp.log,
+    "pi": sp.pi,
+    "E": sp.E,
+    "Abs": sp.Abs,
 }
 
 
-def _safe_graph_expression(
-    expression: str
-):
-
+def _safe_graph_expression(expression: str):
     """Safely convert a mathematical expression into SymPy."""
 
     if not expression:
@@ -2068,22 +1785,17 @@ def _safe_graph_expression(
     )
 
     try:
-
         return sp.sympify(
             expression,
             locals=GRAPH_SAFE_LOCALS
         )
-
     except Exception:
-
         return None
 
 
 def render_graph(
     graph_spec: Dict[str, Any]
 ) -> Optional[bytes]:
-
-    """Render a mathematical graph from the verified graph specification."""
 
     if not isinstance(
         graph_spec,
@@ -2108,55 +1820,34 @@ def render_graph(
         return None
 
     try:
-
-        x = sp.symbols(
-            "x"
-        )
+        x = sp.symbols("x")
 
         fig, ax = plt.subplots(
             figsize=(9, 6)
         )
 
-        # ----------------------------------------------------
-        # X RANGE
-        # ----------------------------------------------------
-
         try:
-
             x_min = float(
                 graph_spec.get(
                     "x_min",
                     -10
                 )
             )
-
         except Exception:
-
             x_min = -10.0
 
         try:
-
             x_max = float(
                 graph_spec.get(
                     "x_max",
                     10
                 )
             )
-
         except Exception:
-
             x_max = 10.0
 
         if x_min >= x_max:
-
-            x_min, x_max = (
-                -10.0,
-                10.0
-            )
-
-        # ----------------------------------------------------
-        # FUNCTION / LINE / QUADRATIC
-        # ----------------------------------------------------
+            x_min, x_max = -10.0, 10.0
 
         if graph_type in (
             "line",
@@ -2174,27 +1865,17 @@ def render_graph(
             )
 
             if sympy_expr is None:
-
-                plt.close(
-                    fig
-                )
-
+                plt.close(fig)
                 return None
 
             try:
-
                 function = sp.lambdify(
                     x,
                     sympy_expr,
                     modules="numpy"
                 )
-
             except Exception:
-
-                plt.close(
-                    fig
-                )
-
+                plt.close(fig)
                 return None
 
             x_data = np.linspace(
@@ -2202,10 +1883,6 @@ def render_graph(
                 x_max,
                 1000
             )
-
-            # ------------------------------------------------
-            # DEGREE / RADIAN SUPPORT
-            # ------------------------------------------------
 
             angle_unit = str(
                 graph_spec.get(
@@ -2215,18 +1892,12 @@ def render_graph(
             ).lower()
 
             evaluation_x = (
-
-                np.pi
-                / 180.0
-                * x_data
-
+                np.pi / 180.0 * x_data
                 if angle_unit == "degrees"
-
                 else x_data
             )
 
             try:
-
                 y_data = function(
                     evaluation_x
                 )
@@ -2235,19 +1906,12 @@ def render_graph(
                     y_data,
                     dtype=float
                 )
-
             except Exception:
-
-                plt.close(
-                    fig
-                )
-
+                plt.close(fig)
                 return None
 
             y_data = np.where(
-                np.isfinite(
-                    y_data
-                ),
+                np.isfinite(y_data),
                 y_data,
                 np.nan
             )
@@ -2257,10 +1921,6 @@ def render_graph(
                 y_data,
                 linewidth=2
             )
-
-        # ----------------------------------------------------
-        # POINTS
-        # ----------------------------------------------------
 
         elif graph_type == "points":
 
@@ -2284,46 +1944,26 @@ def render_graph(
                     list
                 )
             ):
-
-                plt.close(
-                    fig
-                )
-
+                plt.close(fig)
                 return None
 
             if (
                 len(x_values) == 0
                 or len(x_values) != len(y_values)
             ):
-
-                plt.close(
-                    fig
-                )
-
+                plt.close(fig)
                 return None
 
             try:
-
                 x_data = np.asarray(
-                    [
-                        float(v)
-                        for v in x_values
-                    ]
+                    [float(v) for v in x_values]
                 )
 
                 y_data = np.asarray(
-                    [
-                        float(v)
-                        for v in y_values
-                    ]
+                    [float(v) for v in y_values]
                 )
-
             except Exception:
-
-                plt.close(
-                    fig
-                )
-
+                plt.close(fig)
                 return None
 
             ax.scatter(
@@ -2336,7 +1976,6 @@ def render_graph(
                 "connect_points",
                 False
             ):
-
                 ax.plot(
                     x_data,
                     y_data,
@@ -2344,16 +1983,8 @@ def render_graph(
                 )
 
         else:
-
-            plt.close(
-                fig
-            )
-
+            plt.close(fig)
             return None
-
-        # ----------------------------------------------------
-        # AXES
-        # ----------------------------------------------------
 
         ax.axhline(
             0,
@@ -2388,10 +2019,6 @@ def render_graph(
             )
         )
 
-        # ----------------------------------------------------
-        # Y RANGE
-        # ----------------------------------------------------
-
         y_min = graph_spec.get(
             "y_min"
         )
@@ -2401,27 +2028,18 @@ def render_graph(
         )
 
         try:
-
             if (
                 y_min is not None
                 and y_max is not None
             ):
-
-                y_min = float(
-                    y_min
-                )
-
-                y_max = float(
-                    y_max
-                )
+                y_min = float(y_min)
+                y_max = float(y_max)
 
                 if y_min < y_max:
-
                     ax.set_ylim(
                         y_min,
                         y_max
                     )
-
         except Exception:
             pass
 
@@ -2429,10 +2047,6 @@ def render_graph(
             x_min,
             x_max
         )
-
-        # ----------------------------------------------------
-        # TITLE
-        # ----------------------------------------------------
 
         title = str(
             graph_spec.get(
@@ -2442,16 +2056,9 @@ def render_graph(
         ).strip()
 
         if title:
-
-            ax.set_title(
-                title
-            )
+            ax.set_title(title)
 
         plt.tight_layout()
-
-        # ----------------------------------------------------
-        # EXPORT GRAPH
-        # ----------------------------------------------------
 
         output = io.BytesIO()
 
@@ -2462,20 +2069,1269 @@ def render_graph(
             bbox_inches="tight"
         )
 
-        plt.close(
-            fig
-        )
+        plt.close(fig)
 
         return output.getvalue()
 
     except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+
+        return None
+
+
+# ============================================================
+# 📐 MATHEMATICAL CONSTRUCTION ENGINE V1
+# ============================================================
+
+def _construction_point_map(
+    construction_spec: Dict[str, Any]
+) -> Dict[str, Tuple[float, float]]:
+
+    point_map = {}
+
+    points = construction_spec.get(
+        "points",
+        []
+    )
+
+    if not isinstance(
+        points,
+        list
+    ):
+        return point_map
+
+    for point in points:
+        if not isinstance(
+            point,
+            dict
+        ):
+            continue
+
+        label = str(
+            point.get(
+                "label",
+                ""
+            )
+        ).strip()
+
+        if not label:
+            continue
 
         try:
-
-            plt.close(
-                "all"
+            px = float(
+                point.get(
+                    "x",
+                    0
+                )
             )
 
+            py = float(
+                point.get(
+                    "y",
+                    0
+                )
+            )
+
+            point_map[label] = (
+                px,
+                py
+            )
+
+        except Exception:
+            continue
+
+    return point_map
+
+
+def _distance(
+    p1: Tuple[float, float],
+    p2: Tuple[float, float]
+) -> float:
+
+    return float(
+        np.hypot(
+            p2[0] - p1[0],
+            p2[1] - p1[1]
+        )
+    )
+
+
+def _circle_intersections(
+    c1: Tuple[float, float],
+    r1: float,
+    c2: Tuple[float, float],
+    r2: float
+) -> List[Tuple[float, float]]:
+
+    x1, y1 = c1
+    x2, y2 = c2
+
+    dx = x2 - x1
+    dy = y2 - y1
+
+    d = float(
+        np.hypot(
+            dx,
+            dy
+        )
+    )
+
+    if d <= 1e-9:
+        return []
+
+    if d > r1 + r2 + 1e-9:
+        return []
+
+    if d < abs(r1 - r2) - 1e-9:
+        return []
+
+    a = (
+        r1**2
+        - r2**2
+        + d**2
+    ) / (2 * d)
+
+    h_sq = r1**2 - a**2
+
+    if h_sq < -1e-9:
+        return []
+
+    h = np.sqrt(
+        max(
+            0,
+            h_sq
+        )
+    )
+
+    xm = x1 + a * dx / d
+    ym = y1 + a * dy / d
+
+    rx = -dy * h / d
+    ry = dx * h / d
+
+    p1 = (
+        xm + rx,
+        ym + ry
+    )
+
+    p2 = (
+        xm - rx,
+        ym - ry
+    )
+
+    if _distance(p1, p2) < 1e-9:
+        return [p1]
+
+    return [
+        p1,
+        p2
+    ]
+
+
+def _draw_segment(
+    ax,
+    p1: Tuple[float, float],
+    p2: Tuple[float, float],
+    linewidth: float = 2,
+    linestyle: str = "-"
+):
+    ax.plot(
+        [p1[0], p2[0]],
+        [p1[1], p2[1]],
+        linewidth=linewidth,
+        linestyle=linestyle
+    )
+
+
+def _draw_arc(
+    ax,
+    centre: Tuple[float, float],
+    radius: float,
+    start_angle: float,
+    end_angle: float,
+    linewidth: float = 1.4,
+    linestyle: str = "--"
+):
+
+    angles = np.linspace(
+        np.deg2rad(start_angle),
+        np.deg2rad(end_angle),
+        180
+    )
+
+    xs = (
+        centre[0]
+        + radius * np.cos(angles)
+    )
+
+    ys = (
+        centre[1]
+        + radius * np.sin(angles)
+    )
+
+    ax.plot(
+        xs,
+        ys,
+        linewidth=linewidth,
+        linestyle=linestyle
+    )
+
+
+def _label_points(
+    ax,
+    point_map: Dict[str, Tuple[float, float]]
+):
+
+    for label, point in point_map.items():
+        ax.scatter(
+            [point[0]],
+            [point[1]],
+            s=30
+        )
+
+        ax.annotate(
+            label,
+            (
+                point[0],
+                point[1]
+            ),
+            xytext=(6, 6),
+            textcoords="offset points",
+            fontsize=11,
+            fontweight="bold"
+        )
+
+
+def render_construction(
+    construction_spec: Dict[str, Any]
+) -> Optional[bytes]:
+
+    if not isinstance(
+        construction_spec,
+        dict
+    ):
+        return None
+
+    if not construction_spec.get(
+        "required",
+        False
+    ):
+        return None
+
+    construction_type = str(
+        construction_spec.get(
+            "construction_type",
+            "none"
+        )
+    ).lower().strip()
+
+    if construction_type == "none":
+        return None
+
+    try:
+        fig, ax = plt.subplots(
+            figsize=(9, 7)
+        )
+
+        point_map = _construction_point_map(
+            construction_spec
+        )
+
+        # ----------------------------------------------------
+        # TRIANGLE FROM SIDES
+        # ----------------------------------------------------
+
+        if construction_type == "triangle_from_sides":
+
+            lengths = construction_spec.get(
+                "lengths",
+                []
+            )
+
+            if not isinstance(
+                lengths,
+                list
+            ):
+                plt.close(fig)
+                return None
+
+            base_line = construction_spec.get(
+                "base_line",
+                []
+            )
+
+            if (
+                not isinstance(
+                    base_line,
+                    list
+                )
+                or len(base_line) < 2
+            ):
+                plt.close(fig)
+                return None
+
+            a_label = str(
+                base_line[0]
+            )
+
+            b_label = str(
+                base_line[1]
+            )
+
+            if (
+                a_label not in point_map
+                or b_label not in point_map
+            ):
+                plt.close(fig)
+                return None
+
+            A = point_map[a_label]
+            B = point_map[b_label]
+
+            side_lookup = {}
+
+            for item in lengths:
+                if not isinstance(
+                    item,
+                    dict
+                ):
+                    continue
+
+                p1 = str(
+                    item.get(
+                        "from",
+                        ""
+                    )
+                )
+
+                p2 = str(
+                    item.get(
+                        "to",
+                        ""
+                    )
+                )
+
+                try:
+                    value = float(
+                        item.get(
+                            "value"
+                        )
+                    )
+                except Exception:
+                    continue
+
+                side_lookup[
+                    tuple(
+                        sorted(
+                            [p1, p2]
+                        )
+                    )
+                ] = value
+
+            target_label = str(
+                construction_spec.get(
+                    "target_point",
+                    ""
+                )
+            ).strip()
+
+            if not target_label:
+                target_label = "C"
+
+            key_ac = tuple(
+                sorted(
+                    [a_label, target_label]
+                )
+            )
+
+            key_bc = tuple(
+                sorted(
+                    [b_label, target_label]
+                )
+            )
+
+            if (
+                key_ac not in side_lookup
+                or key_bc not in side_lookup
+            ):
+                plt.close(fig)
+                return None
+
+            AC = side_lookup[key_ac]
+            BC = side_lookup[key_bc]
+
+            AB = _distance(
+                A,
+                B
+            )
+
+            if AB <= 0:
+                plt.close(fig)
+                return None
+
+            intersections = _circle_intersections(
+                A,
+                AC,
+                B,
+                BC
+            )
+
+            if not intersections:
+                plt.close(fig)
+                return None
+
+            # Prefer the point above the base.
+            C_candidates = [
+                p for p in intersections
+                if p[1] >= 0
+            ]
+
+            if C_candidates:
+                C = C_candidates[0]
+            else:
+                C = intersections[0]
+
+            point_map[target_label] = C
+
+            _draw_segment(
+                ax,
+                A,
+                B,
+                linewidth=2.2
+            )
+
+            _draw_segment(
+                ax,
+                A,
+                C,
+                linewidth=2.2
+            )
+
+            _draw_segment(
+                ax,
+                B,
+                C,
+                linewidth=2.2
+            )
+
+            if construction_spec.get(
+                "show_construction_arcs",
+                True
+            ):
+                _draw_arc(
+                    ax,
+                    A,
+                    AC,
+                    -65,
+                    65
+                )
+
+                angle_B = np.rad2deg(
+                    np.arctan2(
+                        C[1] - B[1],
+                        C[0] - B[0]
+                    )
+                )
+
+                _draw_arc(
+                    ax,
+                    B,
+                    BC,
+                    angle_B - 55,
+                    angle_B + 55
+                )
+
+        # ----------------------------------------------------
+        # PERPENDICULAR BISECTOR
+        # ----------------------------------------------------
+
+        elif construction_type == "perpendicular_bisector":
+
+            base_line = construction_spec.get(
+                "base_line",
+                []
+            )
+
+            if (
+                not isinstance(
+                    base_line,
+                    list
+                )
+                or len(base_line) < 2
+            ):
+                plt.close(fig)
+                return None
+
+            a_label = str(base_line[0])
+            b_label = str(base_line[1])
+
+            if (
+                a_label not in point_map
+                or b_label not in point_map
+            ):
+                plt.close(fig)
+                return None
+
+            A = point_map[a_label]
+            B = point_map[b_label]
+
+            length = _distance(
+                A,
+                B
+            )
+
+            if length <= 0:
+                plt.close(fig)
+                return None
+
+            # Extend line to form the perpendicular bisector.
+            midpoint = (
+                (A[0] + B[0]) / 2,
+                (A[1] + B[1]) / 2
+            )
+
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+
+            nx = -dy / length
+            ny = dx / length
+
+            extent = length * 0.8
+
+            P1 = (
+                midpoint[0] - nx * extent,
+                midpoint[1] - ny * extent
+            )
+
+            P2 = (
+                midpoint[0] + nx * extent,
+                midpoint[1] + ny * extent
+            )
+
+            _draw_segment(
+                ax,
+                A,
+                B,
+                linewidth=2.2
+            )
+
+            if construction_spec.get(
+                "show_construction_lines",
+                True
+            ):
+                _draw_segment(
+                    ax,
+                    P1,
+                    P2,
+                    linewidth=1.8
+                )
+
+            if construction_spec.get(
+                "show_construction_arcs",
+                True
+            ):
+                _draw_arc(
+                    ax,
+                    A,
+                    length * 0.72,
+                    0,
+                    360
+                )
+
+                _draw_arc(
+                    ax,
+                    B,
+                    length * 0.72,
+                    0,
+                    360
+                )
+
+            point_map["M"] = midpoint
+
+        # ----------------------------------------------------
+        # ANGLE BISECTOR
+        # ----------------------------------------------------
+
+        elif construction_type == "angle_bisector":
+
+            base_line = construction_spec.get(
+                "base_line",
+                []
+            )
+
+            if (
+                not isinstance(
+                    base_line,
+                    list
+                )
+                or len(base_line) < 3
+            ):
+                plt.close(fig)
+                return None
+
+            vertex_label = str(
+                base_line[0]
+            )
+
+            ray1_label = str(
+                base_line[1]
+            )
+
+            ray2_label = str(
+                base_line[2]
+            )
+
+            if not all(
+                label in point_map
+                for label in [
+                    vertex_label,
+                    ray1_label,
+                    ray2_label
+                ]
+            ):
+                plt.close(fig)
+                return None
+
+            V = point_map[vertex_label]
+            P = point_map[ray1_label]
+            Q = point_map[ray2_label]
+
+            v1 = np.array(
+                [
+                    P[0] - V[0],
+                    P[1] - V[1]
+                ],
+                dtype=float
+            )
+
+            v2 = np.array(
+                [
+                    Q[0] - V[0],
+                    Q[1] - V[1]
+                ],
+                dtype=float
+            )
+
+            n1 = np.linalg.norm(v1)
+            n2 = np.linalg.norm(v2)
+
+            if n1 <= 1e-9 or n2 <= 1e-9:
+                plt.close(fig)
+                return None
+
+            u1 = v1 / n1
+            u2 = v2 / n2
+
+            bisector = u1 + u2
+
+            bisector_norm = np.linalg.norm(
+                bisector
+            )
+
+            if bisector_norm <= 1e-9:
+                plt.close(fig)
+                return None
+
+            bisector = (
+                bisector
+                / bisector_norm
+            )
+
+            ray_length = max(
+                n1,
+                n2
+            )
+
+            end = (
+                V[0] + bisector[0] * ray_length,
+                V[1] + bisector[1] * ray_length
+            )
+
+            _draw_segment(
+                ax,
+                V,
+                P,
+                linewidth=2.2
+            )
+
+            _draw_segment(
+                ax,
+                V,
+                Q,
+                linewidth=2.2
+            )
+
+            if construction_spec.get(
+                "show_construction_lines",
+                True
+            ):
+                _draw_segment(
+                    ax,
+                    V,
+                    end,
+                    linewidth=1.8
+                )
+
+            arc_radius = min(
+                n1,
+                n2
+            ) * 0.28
+
+            if (
+                construction_spec.get(
+                    "show_construction_arcs",
+                    True
+                )
+                and arc_radius > 0
+            ):
+
+                angle1 = np.rad2deg(
+                    np.arctan2(
+                        v1[1],
+                        v1[0]
+                    )
+                )
+
+                angle2 = np.rad2deg(
+                    np.arctan2(
+                        v2[1],
+                        v2[0]
+                    )
+                )
+
+                start_angle = min(
+                    angle1,
+                    angle2
+                )
+
+                end_angle = max(
+                    angle1,
+                    angle2
+                )
+
+                if end_angle - start_angle > 180:
+                    start_angle, end_angle = (
+                        end_angle,
+                        start_angle + 360
+                    )
+
+                _draw_arc(
+                    ax,
+                    V,
+                    arc_radius,
+                    start_angle,
+                    end_angle
+                )
+
+        # ----------------------------------------------------
+        # PERPENDICULAR FROM POINT
+        # ----------------------------------------------------
+
+        elif construction_type == "perpendicular_from_point":
+
+            base_line = construction_spec.get(
+                "base_line",
+                []
+            )
+
+            target_label = str(
+                construction_spec.get(
+                    "target_point",
+                    ""
+                )
+            ).strip()
+
+            if (
+                not isinstance(
+                    base_line,
+                    list
+                )
+                or len(base_line) < 2
+                or target_label not in point_map
+            ):
+                plt.close(fig)
+                return None
+
+            A_label = str(base_line[0])
+            B_label = str(base_line[1])
+
+            if (
+                A_label not in point_map
+                or B_label not in point_map
+            ):
+                plt.close(fig)
+                return None
+
+            A = np.array(
+                point_map[A_label],
+                dtype=float
+            )
+
+            B = np.array(
+                point_map[B_label],
+                dtype=float
+            )
+
+            P = np.array(
+                point_map[target_label],
+                dtype=float
+            )
+
+            AB = B - A
+
+            denominator = np.dot(
+                AB,
+                AB
+            )
+
+            if denominator <= 1e-9:
+                plt.close(fig)
+                return None
+
+            t = np.dot(
+                P - A,
+                AB
+            ) / denominator
+
+            foot = A + t * AB
+
+            _draw_segment(
+                ax,
+                tuple(A),
+                tuple(B),
+                linewidth=2.2
+            )
+
+            _draw_segment(
+                ax,
+                tuple(P),
+                tuple(foot),
+                linewidth=1.8
+            )
+
+            point_map["H"] = (
+                float(foot[0]),
+                float(foot[1])
+            )
+
+            if construction_spec.get(
+                "show_construction_arcs",
+                True
+            ):
+                radius = _distance(
+                    tuple(P),
+                    tuple(foot)
+                )
+
+                if radius > 0:
+                    _draw_arc(
+                        ax,
+                        tuple(P),
+                        radius,
+                        0,
+                        360
+                    )
+
+        # ----------------------------------------------------
+        # GENERIC ANGLE CONSTRUCTION
+        # ----------------------------------------------------
+
+        elif construction_type == "angle_construction":
+
+            base_line = construction_spec.get(
+                "base_line",
+                []
+            )
+
+            if (
+                not isinstance(
+                    base_line,
+                    list
+                )
+                or len(base_line) < 2
+            ):
+                plt.close(fig)
+                return None
+
+            A_label = str(base_line[0])
+            B_label = str(base_line[1])
+
+            if (
+                A_label not in point_map
+                or B_label not in point_map
+            ):
+                plt.close(fig)
+                return None
+
+            A = point_map[A_label]
+            B = point_map[B_label]
+
+            _draw_segment(
+                ax,
+                A,
+                B,
+                linewidth=2.2
+            )
+
+            angles = construction_spec.get(
+                "angles",
+                []
+            )
+
+            angle_value = None
+
+            if isinstance(
+                angles,
+                list
+            ):
+                for item in angles:
+                    if isinstance(
+                        item,
+                        dict
+                    ):
+                        try:
+                            angle_value = float(
+                                item.get(
+                                    "value"
+                                )
+                            )
+                            break
+                        except Exception:
+                            pass
+
+            if angle_value is not None:
+
+                length = max(
+                    _distance(A, B),
+                    4.0
+                )
+
+                theta = np.deg2rad(
+                    angle_value
+                )
+
+                C = (
+                    A[0] + length * np.cos(theta),
+                    A[1] + length * np.sin(theta)
+                )
+
+                _draw_segment(
+                    ax,
+                    A,
+                    C,
+                    linewidth=2.2
+                )
+
+                if construction_spec.get(
+                    "show_construction_arcs",
+                    True
+                ):
+                    _draw_arc(
+                        ax,
+                        A,
+                        length * 0.3,
+                        0,
+                        angle_value
+                    )
+
+                target_label = str(
+                    construction_spec.get(
+                        "target_point",
+                        "C"
+                    )
+                ).strip()
+
+                if target_label:
+                    point_map[target_label] = C
+
+        # ----------------------------------------------------
+        # LINE DIVISION
+        # ----------------------------------------------------
+
+        elif construction_type == "line_division":
+
+            base_line = construction_spec.get(
+                "base_line",
+                []
+            )
+
+            if (
+                not isinstance(
+                    base_line,
+                    list
+                )
+                or len(base_line) < 2
+            ):
+                plt.close(fig)
+                return None
+
+            A_label = str(base_line[0])
+            B_label = str(base_line[1])
+
+            if (
+                A_label not in point_map
+                or B_label not in point_map
+            ):
+                plt.close(fig)
+                return None
+
+            A = np.array(
+                point_map[A_label],
+                dtype=float
+            )
+
+            B = np.array(
+                point_map[B_label],
+                dtype=float
+            )
+
+            _draw_segment(
+                ax,
+                tuple(A),
+                tuple(B),
+                linewidth=2.2
+            )
+
+            target_label = str(
+                construction_spec.get(
+                    "target_point",
+                    "M"
+                )
+            ).strip()
+
+            ratio = 0.5
+
+            lengths = construction_spec.get(
+                "lengths",
+                []
+            )
+
+            if isinstance(
+                lengths,
+                list
+            ):
+                for item in lengths:
+                    if isinstance(
+                        item,
+                        dict
+                    ):
+                        try:
+                            ratio = float(
+                                item.get(
+                                    "ratio",
+                                    0.5
+                                )
+                            )
+                            break
+                        except Exception:
+                            pass
+
+            ratio = min(
+                max(ratio, 0.0),
+                1.0
+            )
+
+            M = (
+                A
+                + ratio * (B - A)
+            )
+
+            point_map[target_label] = (
+                float(M[0]),
+                float(M[1])
+            )
+
+            ax.scatter(
+                [M[0]],
+                [M[1]],
+                s=40
+            )
+
+        # ----------------------------------------------------
+        # CIRCLE / ARC
+        # ----------------------------------------------------
+
+        elif construction_type == "circle_or_arc":
+
+            if not point_map:
+                plt.close(fig)
+                return None
+
+            centre_label = str(
+                construction_spec.get(
+                    "target_point",
+                    ""
+                )
+            ).strip()
+
+            if centre_label not in point_map:
+                centre_label = next(
+                    iter(point_map)
+                )
+
+            centre = point_map[
+                centre_label
+            ]
+
+            radius = None
+
+            lengths = construction_spec.get(
+                "lengths",
+                []
+            )
+
+            if isinstance(
+                lengths,
+                list
+            ):
+                for item in lengths:
+                    if isinstance(
+                        item,
+                        dict
+                    ):
+                        try:
+                            radius = float(
+                                item.get(
+                                    "value"
+                                )
+                            )
+                            break
+                        except Exception:
+                            pass
+
+            if radius is None:
+                if len(point_map) >= 2:
+                    other = [
+                        p
+                        for label, p in point_map.items()
+                        if label != centre_label
+                    ][0]
+
+                    radius = _distance(
+                        centre,
+                        other
+                    )
+
+            if radius is None or radius <= 0:
+                plt.close(fig)
+                return None
+
+            _draw_arc(
+                ax,
+                centre,
+                radius,
+                0,
+                360,
+                linewidth=2.0,
+                linestyle="-"
+            )
+
+        else:
+            plt.close(fig)
+            return None
+
+        # ----------------------------------------------------
+        # LABELS
+        # ----------------------------------------------------
+
+        if construction_spec.get(
+            "show_labels",
+            True
+        ):
+            _label_points(
+                ax,
+                point_map
+            )
+
+        # ----------------------------------------------------
+        # AXIS / VIEW
+        # ----------------------------------------------------
+
+        all_points = list(
+            point_map.values()
+        )
+
+        if all_points:
+            xs = [
+                p[0]
+                for p in all_points
+            ]
+
+            ys = [
+                p[1]
+                for p in all_points
+            ]
+
+            xmin = min(xs)
+            xmax = max(xs)
+            ymin = min(ys)
+            ymax = max(ys)
+
+            width = max(
+                xmax - xmin,
+                1
+            )
+
+            height = max(
+                ymax - ymin,
+                1
+            )
+
+            margin = 0.35 * max(
+                width,
+                height
+            )
+
+            ax.set_xlim(
+                xmin - margin,
+                xmax + margin
+            )
+
+            ax.set_ylim(
+                ymin - margin,
+                ymax + margin
+            )
+
+        ax.set_aspect(
+            "equal",
+            adjustable="box"
+        )
+
+        ax.axis("off")
+
+        title = str(
+            construction_spec.get(
+                "title",
+                ""
+            )
+        ).strip()
+
+        if title:
+            ax.set_title(
+                title
+            )
+
+        plt.tight_layout()
+
+        output = io.BytesIO()
+
+        fig.savefig(
+            output,
+            format="png",
+            dpi=170,
+            bbox_inches="tight"
+        )
+
+        plt.close(fig)
+
+        return output.getvalue()
+
+    except Exception:
+        try:
+            plt.close("all")
         except Exception:
             pass
 
@@ -2515,7 +3371,6 @@ def completeness_check(
             ).strip()
 
             if number:
-
                 expected.append(
                     f"{page_number}:{number}"
                 )
@@ -2533,18 +3388,12 @@ def completeness_check(
             ).strip()
 
             if number:
-
                 solved.append(
                     f"{page_number}:{number}"
                 )
 
-    expected_set = set(
-        expected
-    )
-
-    solved_set = set(
-        solved
-    )
+    expected_set = set(expected)
+    solved_set = set(solved)
 
     missing_keys = (
         expected_set
@@ -2556,9 +3405,7 @@ def completeness_check(
     for key in sorted(
         missing_keys
     ):
-
         try:
-
             page, number = key.split(
                 ":",
                 1
@@ -2569,31 +3416,21 @@ def completeness_check(
             )
 
         except Exception:
-
             missing_questions.append(
                 key
             )
 
     return {
-
-        "questions_detected":
-            len(
-                expected_set
-            ),
-
-        "questions_solved":
-            len(
-                expected_set
-                & solved_set
-            ),
-
-        "missing_questions":
-            missing_questions,
-
-        "complete":
-            len(
-                missing_questions
-            ) == 0
+        "questions_detected": len(
+            expected_set
+        ),
+        "questions_solved": len(
+            expected_set & solved_set
+        ),
+        "missing_questions": missing_questions,
+        "complete": len(
+            missing_questions
+        ) == 0
     }
 
 
@@ -2628,14 +3465,12 @@ def display_question(
     crop = None
 
     if bbox:
-
         crop = crop_original_question(
             image_bytes,
             bbox
         )
 
     if crop:
-
         st.image(
             crop,
             caption=(
@@ -2650,7 +3485,6 @@ def display_question(
         )
 
     else:
-
         st.caption(
             "Original question crop unavailable. "
             "Refer to the full original page above."
@@ -2669,19 +3503,16 @@ def display_question(
     ).lower()
 
     if confidence == "high":
-
         st.success(
             "Confidence: HIGH"
         )
 
     elif confidence == "medium":
-
         st.warning(
             "Confidence: MEDIUM"
         )
 
     else:
-
         st.error(
             "Confidence: LOW"
         )
@@ -2692,12 +3523,9 @@ def display_question(
     )
 
     if reason:
-
         st.caption(
             "Verification: "
-            + str(
-                reason
-            )
+            + str(reason)
         )
 
     verification = solution.get(
@@ -2714,7 +3542,6 @@ def display_question(
             "verified",
             False
         ):
-
             st.caption(
                 "✓ Independent solution verification completed."
             )
@@ -2723,7 +3550,6 @@ def display_question(
             "mathematical_error",
             False
         ):
-
             st.error(
                 "Mathematical verification found a "
                 "possible genuine error requiring review."
@@ -2733,7 +3559,6 @@ def display_question(
             "visual_ambiguity",
             False
         ):
-
             st.warning(
                 "Visual verification found essential "
                 "information that may be ambiguous."
@@ -2748,7 +3573,6 @@ def display_question(
         "medium",
         "high"
     ):
-
         st.info(
             f"👁️ Visual dependency: "
             f"**{visual_dependency}**\n\n"
@@ -2763,7 +3587,6 @@ def display_question(
     if solution.get(
         "method"
     ):
-
         st.markdown(
             "**Method**"
         )
@@ -2800,7 +3623,6 @@ def display_question(
             )
 
     else:
-
         render_math_text(
             working
         )
@@ -2810,7 +3632,6 @@ def display_question(
     )
 
     if final_answer:
-
         st.markdown(
             "**Final Answer**"
         )
@@ -2872,6 +3693,58 @@ def display_question(
                 "not be rendered."
             )
 
+    # ========================================================
+    # 📐 GENERATED MATHEMATICAL CONSTRUCTION
+    # ========================================================
+
+    construction_spec = solution.get(
+        "construction_spec",
+        {}
+    )
+
+    if (
+        isinstance(
+            construction_spec,
+            dict
+        )
+        and construction_spec.get(
+            "required",
+            False
+        )
+    ):
+
+        st.markdown(
+            "### 📐 Generated Construction"
+        )
+
+        construction_png = render_construction(
+            construction_spec
+        )
+
+        if construction_png:
+
+            st.image(
+                construction_png,
+                caption=(
+                    f"Mathematical construction for "
+                    f"Question {number}"
+                ),
+                width="stretch"
+            )
+
+            st.caption(
+                "📐 Construction generated mathematically "
+                "from the verified construction specification."
+            )
+
+        else:
+
+            st.warning(
+                "The question requires a construction, "
+                "but the construction specification "
+                "could not be rendered."
+            )
+
     marking = solution.get(
         "marking_scheme",
         []
@@ -2917,9 +3790,7 @@ def display_question(
 
         st.warning(
             "⚠️ "
-            + str(
-                warning
-            )
+            + str(warning)
         )
 
 
@@ -2953,12 +3824,8 @@ if uploaded:
     ):
 
         st.session_state.analysis_results = []
-
         st.session_state.page_images = []
-
-        st.session_state.paper_name = (
-            uploaded.name
-        )
+        st.session_state.paper_name = uploaded.name
 
         # ====================================================
         # RENDER
@@ -2998,9 +3865,7 @@ if uploaded:
 
             st.stop()
 
-        st.session_state.page_images = (
-            page_images
-        )
+        st.session_state.page_images = page_images
 
         st.success(
             f"Rendered {len(page_images)} "
@@ -3040,16 +3905,10 @@ if uploaded:
                 except Exception as exc:
 
                     page_analysis = {
-
-                        "questions":
-                            [],
-
-                        "visual_warnings":
-                            [
-                                str(
-                                    exc
-                                )
-                            ]
+                        "questions": [],
+                        "visual_warnings": [
+                            str(exc)
+                        ]
                     }
 
             questions = page_analysis.get(
@@ -3058,21 +3917,13 @@ if uploaded:
             )
 
             page_result = {
-
-                "page_number":
-                    page_number,
-
-                "questions":
-                    questions,
-
-                "visual_warnings":
-                    page_analysis.get(
-                        "visual_warnings",
-                        []
-                    ),
-
-                "solutions":
+                "page_number": page_number,
+                "questions": questions,
+                "visual_warnings": page_analysis.get(
+                    "visual_warnings",
                     []
+                ),
+                "solutions": []
             }
 
             # =================================================
@@ -3164,9 +4015,7 @@ if uploaded:
             progress.progress(
                 int(
                     (
-                        (
-                            index + 1
-                        )
+                        (index + 1)
                         / len(page_images)
                     )
                     * 100
@@ -3220,31 +4069,22 @@ if results:
     )
 
     with col1:
-
         st.metric(
             "Questions detected",
-            check[
-                "questions_detected"
-            ]
+            check["questions_detected"]
         )
 
     with col2:
-
         st.metric(
             "Questions solved",
-            check[
-                "questions_solved"
-            ]
+            check["questions_solved"]
         )
 
     with col3:
-
         st.metric(
             "Missing",
             len(
-                check[
-                    "missing_questions"
-                ]
+                check["missing_questions"]
             )
         )
 
@@ -3255,9 +4095,7 @@ if results:
         st.warning(
             "Questions not yet solved: "
             + ", ".join(
-                check[
-                    "missing_questions"
-                ]
+                check["missing_questions"]
             )
         )
 
@@ -3315,7 +4153,6 @@ if results:
             ):
 
                 for warning in warnings:
-
                     st.warning(
                         warning
                     )
@@ -3335,7 +4172,6 @@ if results:
             ).strip()
 
             if number:
-
                 solution_map[
                     number
                 ] = solution
@@ -3364,24 +4200,20 @@ if results:
             if solution is None:
 
                 solution = {
-
-                    "question_number":
-                        number,
-
-                    "confidence":
-                        "medium",
-
-                    "confidence_reason":
-                        "No solution was generated.",
-
-                    "working":
-                        [],
-
-                    "marking_scheme":
-                        [],
-
-                    "warning":
+                    "question_number": number,
+                    "confidence": "medium",
+                    "confidence_reason": (
                         "No solution was generated."
+                    ),
+                    "working": [],
+                    "marking_scheme": [],
+                    "graph_spec": default_graph_spec(),
+                    "construction_spec": (
+                        default_construction_spec()
+                    ),
+                    "warning": (
+                        "No solution was generated."
+                    )
                 }
 
             st.divider()
@@ -3404,12 +4236,21 @@ if results:
 
     visual_questions = []
 
+    construction_questions = []
+
     for page_result in results:
 
         for question in page_result.get(
             "questions",
             []
         ):
+
+            number = str(
+                question.get(
+                    "number",
+                    ""
+                )
+            )
 
             if (
                 question.get(
@@ -3427,12 +4268,16 @@ if results:
             ):
 
                 visual_questions.append(
-                    str(
-                        question.get(
-                            "number",
-                            ""
-                        )
-                    )
+                    number
+                )
+
+            if question.get(
+                "has_construction",
+                False
+            ):
+
+                construction_questions.append(
+                    number
                 )
 
     if visual_questions:
@@ -3451,20 +4296,27 @@ if results:
             "questions were detected."
         )
 
+    if construction_questions:
+
+        st.markdown(
+            "### 📐 Mathematical constructions detected"
+        )
+
+        st.success(
+            "Construction questions: "
+            + ", ".join(
+                construction_questions
+            )
+        )
+
     # ========================================================
     # MATHS DIAGNOSTIC
     # ========================================================
 
     maths_features = {
-
-        "surds":
-            0,
-
-        "integration":
-            0,
-
-        "formula_subject":
-            0
+        "surds": 0,
+        "integration": 0,
+        "formula_subject": 0
     }
 
     for page_result in results:
@@ -3474,14 +4326,12 @@ if results:
             []
         ):
 
-            summary = (
-                str(
-                    question.get(
-                        "visible_text_summary",
-                        ""
-                    )
-                ).lower()
-            )
+            summary = str(
+                question.get(
+                    "visible_text_summary",
+                    ""
+                )
+            ).lower()
 
             features = " ".join(
                 str(x).lower()
@@ -3617,14 +4467,17 @@ else:
         **6. Surds, integration and algebraic rearrangement
         receive dedicated mathematical instructions**
 
-        **7. The solution is independently verified
+        **7. Mathematical constructions can be identified
+        and generated using a dedicated geometry engine**
+
+        **8. The solution is independently verified
         against the original question**
 
-        **8. Low confidence is reserved for genuine
+        **9. Low confidence is reserved for genuine
         mathematical errors or essential visual ambiguity**
 
-        **9. Original pages remain untouched**
+        **10. Original pages remain untouched**
 
-        **10. Marking points are displayed under each question**
+        **11. Marking points are displayed under each question**
         """
     )
